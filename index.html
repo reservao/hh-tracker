@@ -1,0 +1,2646 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HH Tracker — Monitoreo de Horas por Proyecto</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --navy: #1E2A5E;
+  --navy-dark: #141B3D;
+  --bg: #F3F4F8;
+  --surface: #FFFFFF;
+  --border: #E2E4EC;
+  --text: #1A1D29;
+  --muted: #6B7280;
+  --teal: #1E9E8B;
+  --teal-bg: #E6F5F2;
+  --amber: #DB9A2E;
+  --amber-bg: #FBF1DF;
+  --red: #D6493E;
+  --red-bg: #FBE7E5;
+  --radius: 10px;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{
+  font-family:'Inter', system-ui, sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  padding-bottom:60px;
+}
+.mono{ font-family:'JetBrains Mono', ui-monospace, monospace; }
+h1,h2,h3,.display{ font-family:'Space Grotesk', sans-serif; }
+.muted{ color:var(--muted); }
+button{ font-family:inherit; cursor:pointer; }
+input, select, textarea{ font-family:inherit; font-size:14px; }
+
+.topbar{
+  background:linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+  color:#fff;
+  padding:28px 32px 20px;
+}
+.topbar-inner{ max-width:1180px; margin:0 auto; }
+.topbar h1{ font-size:24px; font-weight:700; letter-spacing:-0.02em; }
+.topbar .subtitle{ color:#B9C0E0; font-size:13.5px; margin-top:4px; }
+
+.kpi-strip{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-top:22px; }
+.kpi{ background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:var(--radius); padding:12px 14px; }
+.kpi .kpi-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#A9B1D6; }
+.kpi .kpi-value{ font-size:20px; font-weight:600; margin-top:4px; font-family:'JetBrains Mono', monospace; }
+.kpi .kpi-value.teal{ color:#5FE3CC; }
+.kpi .kpi-value.amber{ color:#F5C15A; }
+.kpi .kpi-value.red{ color:#F28A81; }
+
+.tabs{ max-width:1180px; margin:0 auto; display:flex; gap:4px; padding:0 32px; margin-top:18px; border-bottom:1px solid var(--border); background:var(--bg); flex-wrap:wrap; }
+.tab-btn{ background:none; border:none; padding:12px 16px; font-size:14px; font-weight:600; color:var(--muted); border-bottom:2.5px solid transparent; transition:all .15s; }
+.tab-btn:hover{ color:var(--navy); }
+.tab-btn.active{ color:var(--navy); border-bottom-color:var(--teal); }
+
+.content{ max-width:1180px; margin:24px auto 0; padding:0 32px; }
+
+.card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+.card-header{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; gap:12px; flex-wrap:wrap; }
+.card-title{ font-size:16px; font-weight:700; }
+.card-sub{ font-size:12.5px; color:var(--muted); margin-top:2px; }
+
+.badge{ display:inline-block; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; }
+.badge.activo{ background:var(--teal-bg); color:var(--teal); }
+.badge.pausa{ background:var(--amber-bg); color:var(--amber); }
+.badge.cerrado{ background:#EAEBF0; color:var(--muted); }
+.badge.iniciar{ background:#E5EAFB; color:var(--navy); }
+
+.btn{ border-radius:8px; padding:9px 16px; font-size:13.5px; font-weight:600; border:1px solid transparent; transition:all .15s; display:inline-flex; align-items:center; gap:6px; }
+.btn-primary{ background:var(--navy); color:#fff; }
+.btn-primary:hover{ background:var(--navy-dark); }
+.btn-secondary{ background:#fff; color:var(--navy); border-color:var(--border); }
+.btn-secondary:hover{ background:#F0F1F6; }
+.btn-ghost{ background:none; color:var(--muted); padding:6px 10px; }
+.btn-ghost:hover{ color:var(--red); }
+.btn-sm{ padding:6px 11px; font-size:12.5px; }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
+
+.gauge{ width:100%; }
+.gauge-track{ position:relative; height:9px; background:#EEF0F5; border-radius:5px; overflow:visible; }
+.gauge-fill{ height:100%; border-radius:5px; transition:width .3s; }
+.gauge-marker{ position:absolute; top:-3px; width:2px; height:15px; background:var(--navy); border-radius:1px; }
+.gauge-label{ display:flex; align-items:baseline; gap:5px; margin-top:6px; font-size:12.5px; }
+
+table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); padding:8px 10px; border-bottom:1.5px solid var(--border); }
+td{ padding:10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+tr:last-child td{ border-bottom:none; }
+td.mono, th.num{ text-align:right; }
+
+.form-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; }
+.field label{ display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:5px; }
+.field input, .field select, .field textarea{ width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:7px; background:#fff; }
+.field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--teal); outline-offset:1px; border-color:var(--teal); }
+
+.empty{ text-align:center; padding:50px 20px; color:var(--muted); }
+.empty .display{ font-size:17px; color:var(--text); margin-bottom:6px; }
+
+.modal-overlay{ position:fixed; inset:0; background:rgba(20,27,61,0.5); display:none; align-items:flex-start; justify-content:center; z-index:100; padding:40px 20px; overflow-y:auto; }
+.modal-overlay.open{ display:flex; }
+.modal{ background:#fff; border-radius:12px; padding:24px; width:100%; max-width:540px; }
+.modal h3{ font-size:17px; margin-bottom:16px; }
+.modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+
+.toast{ position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy-dark); color:#fff; padding:11px 20px; border-radius:8px; font-size:13.5px; opacity:0; transition:all .25s; z-index:200; pointer-events:none; max-width:80vw; }
+.toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+.person-row{ display:grid; grid-template-columns:1.4fr 1fr 1.6fr auto; gap:14px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); }
+.person-row:last-child{ border-bottom:none; }
+.person-name{ font-weight:600; font-size:13.5px; }
+.person-role{ font-size:12px; color:var(--muted); }
+
+.section-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); font-weight:700; margin:18px 0 8px; }
+.loading{ text-align:center; padding:80px; color:var(--muted); }
+.link-btn{ background:none; border:none; color:var(--teal); font-weight:600; font-size:13px; }
+.hidden{ display:none !important; }
+.expand-toggle{ cursor:pointer; user-select:none; }
+.chip{ background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:2px 8px; font-size:11.5px; color:var(--muted); }
+.filter-bar{ display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+.breadcrumb{ margin-bottom:16px; font-size:13px; display:flex; align-items:center; flex-wrap:wrap; }
+.breadcrumb a{ cursor:pointer; color:var(--muted); font-weight:600; }
+.breadcrumb a:hover{ color:var(--navy); text-decoration:underline; }
+.breadcrumb a.active{ color:var(--navy); }
+.crumb-sep{ margin:0 6px; color:var(--border); }
+.topbar-btn{ background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:#D7DBEF; padding:9px 18px; border-radius:8px; font-size:13.5px; font-weight:700; transition:all .15s; }
+.topbar-btn:hover{ background:rgba(255,255,255,0.16); color:#fff; }
+.topbar-btn.active{ background:#fff; color:var(--navy); }
+.alert-item{ padding:9px 12px; border-radius:8px; font-size:13px; margin-bottom:6px; }
+.alert-item.red{ background:var(--red-bg); color:#8A2A22; }
+.alert-item.amber{ background:var(--amber-bg); color:#7A5313; }
+
+/* Styles for Print / PDF Export */
+@media print {
+  body { background:#fff; padding-bottom:0; }
+  .topbar-btn, #topNavButtons, .modal-overlay, .toast, .no-print, button, input[type="file"], .filter-card-actions { display:none !important; }
+  .card { border:1px solid #ccc; box-shadow:none; break-inside:avoid; }
+  .topbar { background:#141B3D !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap">
+      <div class="expand-toggle" onclick="switchMainView('dashboard')">
+        <h1>HH Tracker</h1>
+        <div class="subtitle">Monitoreo de horas hombre por proyecto, persona y rol — proyectado vs. real</div>
+      </div>
+      <div style="display:flex; gap:8px" id="topNavButtons"></div>
+    </div>
+    <div class="kpi-strip" id="kpiStrip"></div>
+  </div>
+</div>
+
+<div id="subnav"></div>
+
+<div class="content" id="content">
+  <div class="loading">Cargando datos…</div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.16.0/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.16.0/firebase-firestore-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// ---------- State ----------
+let state = {
+  projects: [],      // {id,name,client,status,startMonth,endMonth,assignments:[{personId,projectedByMonth:{'YYYY-MM':hrs}}]}
+  people: [],         // {id,name,role,rateOverride,capacityOverride}
+  realEntries: [],    // {id,category:'project'|'admin',projectId,personId,month,hours,note,source,loggedBy,createdAt}
+  config: {roleRates:{}, targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180},
+  mainView: 'dashboard',
+  hhSubTab: 'proyectos',
+  dashMode: 'global', // 'global' | 'hierarchy' | 'unidades' | 'lineas' | 'proyectos' | 'personas'
+  loaded: false,
+  expandedProject: null,
+  dashNav: {unidad:null, linea:null, projectId:null, personId:null},
+  entryFilterMonth: 'all',
+  capacityMonth: null,
+  userName: ''
+};
+
+let activeCharts = {};
+
+const STATUS_OPTS = [
+  {v:'iniciar', label:'Por iniciar', cls:'iniciar'},
+  {v:'activo', label:'Activo', cls:'activo'},
+  {v:'pausa', label:'En pausa', cls:'pausa'},
+  {v:'cerrado', label:'Cerrado', cls:'cerrado'}
+];
+const MONTHS_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MONTHS_ES_FULL = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+function normalizeStr(s){
+  return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');
+}
+function monthLabelFull(m){ // 'YYYY-MM' -> 'Marzo 2026'
+  const parts = m.split('-');
+  const name = MONTHS_ES_FULL[parseInt(parts[1],10)-1];
+  return name.charAt(0).toUpperCase()+name.slice(1)+' '+parts[0];
+}
+function parseMonthLabel(label){ // 'marzo 2026' / 'MarzO   2026' / 'Marzo, 2026' -> 'YYYY-MM' o null
+  const norm = normalizeStr(label).replace(/,/g,' ').replace(/\s+/g,' ');
+  const match = norm.match(/^([a-z]+)\s+(\d{4})$/);
+  if(!match) return null;
+  let word = match[1];
+  if(word==='setiembre') word='septiembre';
+  const idx = MONTHS_ES_FULL.indexOf(word);
+  if(idx===-1) return null;
+  return match[2]+'-'+String(idx+1).padStart(2,'0');
+}
+
+// ---------- Storage (Firebase Firestore) ----------
+function defaultConfig(){ return {roleRates:{}, unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180}; }
+function migrateConfigShape(){
+  if(!state.config.unidades) state.config.unidades=[];
+  if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
+  let changed=false;
+  state.config.lineasNegocio = state.config.lineasNegocio.map(l=>{
+    if(typeof l === 'string'){ changed=true; return {nombre:l, unidad:''}; }
+    return l;
+  });
+  return changed;
+}
+function getUnidadForLinea(lineaNombre){
+  const l = (state.config.lineasNegocio||[]).find(x=>x.nombre===lineaNombre);
+  return l ? (l.unidad||'') : '';
+}
+function lineasDeUnidad(unidad){
+  return (state.config.lineasNegocio||[]).filter(l=>l.unidad===unidad).map(l=>l.nombre);
+}
+function peopleInLinea(lineaNombre){ return state.people.filter(p=>p.lineaNegocio===lineaNombre); }
+function peopleInUnidad(unidad){ return state.people.filter(p=>getUnidadForLinea(p.lineaNegocio)===unidad); }
+function projectsForPeopleIds(personIds){
+  return state.projects.filter(p=>(p.assignments||[]).some(a=>personIds.has(a.personId)));
+}
+function projectTotalsForPeople(project, personIds){
+  let projectedHours=0, actualHours=0, projectedCost=0, actualCost=0;
+  (project.assignments||[]).forEach(a=>{
+    if(personIds && !personIds.has(a.personId)) return;
+    const person = getPerson(a.personId); if(!person) return;
+    const proj = assignmentProjectedTotal(a);
+    const act = projectRealHoursForPerson(project.id, a.personId);
+    const rate = personRate(person);
+    projectedHours += proj; actualHours += act; projectedCost += proj*rate; actualCost += act*rate;
+  });
+  return {projectedHours, actualHours, projectedCost, actualCost};
+}
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDq00jxts_xGmF_ZMA98-0qd313vE-eKks",
+  authDomain: "hh-circularexpande.firebaseapp.com",
+  projectId: "hh-circularexpande",
+  storageBucket: "hh-circularexpande.firebasestorage.app",
+  messagingSenderId: "861286796980",
+  appId: "1:861286796980:web:7e42688bb4fe7c77a4d1e1"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const FS_COLLECTION = 'hhtracker_data'; // Colección real de producción
+
+async function fsSet(key, jsonString){
+  try{
+    await db.collection(FS_COLLECTION).doc(key).set({
+      json: jsonString,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    return true;
+  }catch(e){ console.error('fsSet error', key, e); return false; }
+}
+
+// Cada documento se sincroniza en tiempo real: si otra persona carga datos
+// desde otro navegador, este cliente se actualiza solo, sin recargar la página.
+const _fsLoadedFlags = {projects:false, people:false, real_entries:false, config:false};
+function _fsCheckAllLoaded(){
+  if(!state.loaded && Object.values(_fsLoadedFlags).every(Boolean)){
+    state.loaded = true;
+    state.capacityMonth = currentMonth();
+    migrateProjectPeople();
+    if(migrateConfigShape()) persistConfig();
+  }
+  if(state.loaded) renderAll();
+}
+
+function initFirestoreSync(){
+  state.userName = localStorage.getItem('hh_username') || '';
+
+  db.collection(FS_COLLECTION).doc('projects').onSnapshot(doc=>{
+    state.projects = (doc.exists && doc.data().json) ? JSON.parse(doc.data().json) : [];
+    _fsLoadedFlags.projects = true; _fsCheckAllLoaded();
+  }, err=>{ console.error(err); showToast('Error de conexión con la base de datos.'); });
+
+  db.collection(FS_COLLECTION).doc('people').onSnapshot(doc=>{
+    state.people = (doc.exists && doc.data().json) ? JSON.parse(doc.data().json) : [];
+    _fsLoadedFlags.people = true; _fsCheckAllLoaded();
+  }, err=>{ console.error(err); });
+
+  db.collection(FS_COLLECTION).doc('real_entries').onSnapshot(doc=>{
+    state.realEntries = (doc.exists && doc.data().json) ? JSON.parse(doc.data().json) : [];
+    _fsLoadedFlags.real_entries = true; _fsCheckAllLoaded();
+  }, err=>{ console.error(err); });
+
+  db.collection(FS_COLLECTION).doc('config').onSnapshot(doc=>{
+    state.config = (doc.exists && doc.data().json) ? JSON.parse(doc.data().json) : defaultConfig();
+    _fsLoadedFlags.config = true; _fsCheckAllLoaded();
+  }, err=>{ console.error(err); });
+}
+
+function migrateProjectPeople(){
+  let changed = false;
+  const nameToId = {};
+  state.people.forEach(p=> nameToId[p.name.trim().toLowerCase()] = p.id);
+  state.projects.forEach(proj=>{
+    if(proj.people && Array.isArray(proj.people)){
+      changed = true;
+      if(!proj.assignments) proj.assignments = [];
+      proj.people.forEach(op=>{
+        const key = (op.name||'').trim().toLowerCase();
+        let gid = nameToId[key];
+        if(!gid){
+          gid = uid('pers');
+          state.people.push({id:gid, name:op.name, role:op.role||'Consultor', rateOverride:(op.rate!=null?op.rate:null), capacityOverride:null});
+          nameToId[key] = gid;
+        }
+        if(op.role && !state.config.roleRates.hasOwnProperty(op.role)) state.config.roleRates[op.role] = op.rate||0;
+        const pbm = {};
+        if(op.projectedHours) pbm[currentMonth()] = op.projectedHours;
+        proj.assignments.push({personId:gid, projectedByMonth:pbm, _oldId:op.id});
+      });
+      delete proj.people;
+    }
+    if(!proj.assignments) proj.assignments = [];
+    if(!proj.startMonth) proj.startMonth = '';
+    if(!proj.endMonth) proj.endMonth = '';
+  });
+  if(changed){ persistProjects(); persistPeople(); persistConfig(); }
+}
+
+async function persistProjects(){ const ok = await fsSet('projects', JSON.stringify(state.projects)); if(!ok) showToast('No se pudo guardar el proyecto (revisa tu conexión).'); }
+async function persistPeople(){ const ok = await fsSet('people', JSON.stringify(state.people)); if(!ok) showToast('No se pudo guardar el equipo (revisa tu conexión).'); }
+async function persistEntries(){ const ok = await fsSet('real_entries', JSON.stringify(state.realEntries)); if(!ok) showToast('No se pudo guardar el registro (revisa tu conexión).'); }
+async function persistConfig(){ const ok = await fsSet('config', JSON.stringify(state.config)); if(!ok) showToast('No se pudo guardar la configuración (revisa tu conexión).'); }
+async function persistUserName(name){ localStorage.setItem('hh_username', name || ''); }
+
+// ---------- Helpers ----------
+function uid(prefix){ return prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmtH(n){ return new Intl.NumberFormat('es-CL',{maximumFractionDigits:1}).format(n||0); }
+function fmtMoney(n){ return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(Math.round(n||0)); }
+function currentMonth(){ return new Date().toISOString().slice(0,7); }
+function fmtMonth(m){ if(!m) return '—'; const parts=m.split('-'); return MONTHS_ES[parseInt(parts[1],10)-1] + ' ' + parts[0]; }
+function monthRange(start,end){
+  if(!start||!end) return [];
+  const sp=start.split('-').map(Number), ep=end.split('-').map(Number);
+  let y=sp[0], m=sp[1]; const ye=ep[0], me=ep[1];
+  const res=[]; let guard=0;
+  while((y<ye || (y===ye && m<=me)) && guard<120){
+    res.push(y+'-'+String(m).padStart(2,'0'));
+    m++; if(m>12){ m=1; y++; }
+    guard++;
+  }
+  return res;
+}
+function addMonthsAgo(n){
+  const d = new Date(); const res=[];
+  for(let i=n-1;i>=0;i--){
+    const dt = new Date(d.getFullYear(), d.getMonth()-i, 1);
+    res.push(dt.toISOString().slice(0,7));
+  }
+  return res;
+}
+function monthsForward(n){
+  const d = new Date(); const res=[];
+  for(let i=0;i<n;i++){
+    const dt = new Date(d.getFullYear(), d.getMonth()+i, 1);
+    res.push(dt.toISOString().slice(0,7));
+  }
+  return res;
+}
+function showToast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(window._toastTimer); window._toastTimer=setTimeout(()=>t.classList.remove('show'),3000);
+}
+function statusMeta(v){ return STATUS_OPTS.find(s=>s.v===v) || STATUS_OPTS[0]; }
+function ratioColor(ratio){
+  if(ratio > 1.1) return 'var(--red)';
+  if(ratio >= 0.9) return 'var(--teal)';
+  return 'var(--amber)';
+}
+function getPerson(id){ return state.people.find(p=>p.id===id); }
+function roleRate(role){ return Number(state.config.roleRates[role]||0); }
+function personRate(person){ if(!person) return 0; return (person.rateOverride!=null && person.rateOverride!=='') ? Number(person.rateOverride) : roleRate(person.role); }
+function personCapacity(person){ if(!person) return Number(state.config.monthlyCapacity||180); return (person.capacityOverride!=null && person.capacityOverride!=='') ? Number(person.capacityOverride) : Number(state.config.monthlyCapacity||180); }
+function personTargetProjectPct(person){ if(!person) return Number(state.config.targetProjectPct||80); return (person.targetProjectPctOverride!=null && person.targetProjectPctOverride!=='') ? Number(person.targetProjectPctOverride) : Number(state.config.targetProjectPct||80); }
+function personTargetAdminPct(person){ if(!person) return Number(state.config.targetAdminPct||20); return (person.targetAdminPctOverride!=null && person.targetAdminPctOverride!=='') ? Number(person.targetAdminPctOverride) : Number(state.config.targetAdminPct||20); }
+function assignmentProjectedTotal(a){ return Object.values(a.projectedByMonth||{}).reduce((s,v)=>s+Number(v||0),0); }
+function projectRealHoursForPerson(projectId, personId){ return state.realEntries.filter(e=>e.category==='project' && e.projectId===projectId && e.personId===personId).reduce((s,e)=>s+Number(e.hours||0),0); }
+function personProjectHoursInMonth(personId, month){ return state.realEntries.filter(e=>e.category==='project' && e.personId===personId && e.month===month).reduce((s,e)=>s+Number(e.hours||0),0); }
+function personAdminHoursInMonth(personId, month){ return state.realEntries.filter(e=>e.category==='admin' && e.personId===personId && e.month===month).reduce((s,e)=>s+Number(e.hours||0),0); }
+function lastMonthsDesc(n){ return addMonthsAgo(n).slice().reverse(); }
+
+function projectTotals(project){ return projectTotalsForPeople(project, null); }
+
+function gauge(projected, actual){
+  projected = Number(projected)||0; actual = Number(actual)||0;
+  const scale = Math.max(projected, actual, 1) * 1.15;
+  const markerPct = (projected/scale*100).toFixed(2);
+  const fillPct = (actual/scale*100).toFixed(2);
+  const ratio = projected>0 ? actual/projected : (actual>0 ? 2 : 0);
+  const color = ratioColor(ratio);
+  const pctLabel = projected>0 ? (ratio*100).toFixed(0)+'%' : (actual>0 ? '—' : '0%');
+  return '<div class="gauge">'
+    + '<div class="gauge-track">'
+    + '<div class="gauge-fill" style="width:'+fillPct+'%;background:'+color+'"></div>'
+    + '<div class="gauge-marker" style="left:'+markerPct+'%"></div>'
+    + '</div>'
+    + '<div class="gauge-label"><span class="mono" style="font-weight:600">'+fmtH(actual)+' h</span><span class="muted">/ '+fmtH(projected)+' h proy.</span><span class="mono" style="color:'+color+';font-weight:700;margin-left:auto">'+pctLabel+'</span></div>'
+    + '</div>';
+}
+
+// ---------- Tabs ----------
+function switchMainView(view){
+  state.mainView = view;
+  if(view==='hh' && !state.hhSubTab) state.hhSubTab = 'proyectos';
+  renderTopButtons();
+  renderContent();
+}
+function switchHHSubTab(tab){
+  state.hhSubTab = tab;
+  renderContent();
+}
+function renderTopButtons(){
+  const el = document.getElementById('topNavButtons');
+  const alertCount = getCriticalAlertsCount();
+  const alertBadge = alertCount > 0 ? '<span style="background:var(--red); color:#fff; font-size:10px; padding:2px 6px; border-radius:10px; margin-left:4px; font-weight:800">' + alertCount + '</span>' : '';
+
+  el.innerHTML =
+    '<button class="topbar-btn no-print" onclick="toggleOmniboxModal()" title="Buscar (Ctrl+K)">🔍 <span style="font-size:11.5px; opacity:0.85">Ctrl+K</span></button>'
+    + '<button class="topbar-btn no-print" onclick="toggleAlertsDrawer()" title="Centro de Alertas">🔔' + alertBadge + '</button>'
+    + '<button class="topbar-btn '+(state.mainView==='dashboard'?'active':'')+'" onclick="switchMainView(\'dashboard\')">Dashboard</button>'
+    + '<button class="topbar-btn '+(state.mainView==='hh'?'active':'')+'" onclick="switchMainView(\'hh\')">HH</button>'
+    + '<button class="topbar-btn '+(state.mainView==='config'?'active':'')+'" onclick="switchMainView(\'config\')" title="Configuración">⚙️</button>';
+}
+function renderSubnav(){
+  const el = document.getElementById('subnav');
+  if(state.mainView!=='hh'){ el.innerHTML=''; return; }
+  el.innerHTML = '<div class="tabs">'
+    + '<button class="tab-btn '+(state.hhSubTab==='proyectos'?'active':'')+'" onclick="switchHHSubTab(\'proyectos\')">Proyectos</button>'
+    + '<button class="tab-btn '+(state.hhSubTab==='cargar'?'active':'')+'" onclick="switchHHSubTab(\'cargar\')">Cargar Horas</button>'
+    + '</div>';
+}
+
+function renderAll(){ renderKPIs(); renderContent(); }
+
+function renderKPIs(){
+  const el = document.getElementById('kpiStrip');
+  const activeProjects = state.projects.filter(p=>p.status==='activo').length;
+  let totalProj=0, totalAct=0, totalProjCost=0, totalActCost=0;
+  state.projects.forEach(p=>{
+    const t = projectTotals(p);
+    totalProj+=t.projectedHours; totalAct+=t.actualHours; totalProjCost+=t.projectedCost; totalActCost+=t.actualCost;
+  });
+  const dev = totalActCost - totalProjCost;
+  const devClass = dev>0 ? 'red' : 'teal';
+  const avance = totalProj>0 ? ((totalAct/totalProj)*100).toFixed(0)+'%' : '—';
+  el.innerHTML = ''
+    + '<div class="kpi"><div class="kpi-label">Proyectos activos</div><div class="kpi-value">'+activeProjects+'</div></div>'
+    + '<div class="kpi"><div class="kpi-label">HH proyectadas</div><div class="kpi-value">'+fmtH(totalProj)+'</div></div>'
+    + '<div class="kpi"><div class="kpi-label">HH reales</div><div class="kpi-value teal">'+fmtH(totalAct)+'</div></div>'
+    + '<div class="kpi"><div class="kpi-label">Avance portafolio</div><div class="kpi-value">'+avance+'</div></div>'
+    + '<div class="kpi"><div class="kpi-label">Desviación costo</div><div class="kpi-value '+devClass+'">'+(dev>0?'+':'')+fmtMoney(dev)+'</div></div>';
+}
+
+function setDashMode(mode){
+  state.dashMode = mode;
+  if(mode !== 'hierarchy') state.dashNav = {unidad:null, linea:null, projectId:null, personId:null};
+  renderContent();
+}
+
+function renderContent(){
+  const el = document.getElementById('content');
+  if(!state.loaded){ el.innerHTML = '<div class="loading">Cargando datos…</div>'; return; }
+  renderSubnav();
+  if(state.mainView==='dashboard'){
+    el.innerHTML = renderDashboard();
+    renderDashboardCharts();
+  }
+  else if(state.mainView==='hh'){
+    if(state.hhSubTab==='proyectos') el.innerHTML = renderProyectos();
+    else if(state.hhSubTab==='cargar') el.innerHTML = renderCargar();
+  }
+  else if(state.mainView==='config') el.innerHTML = renderConfig();
+}
+
+// ---------- Dashboard ----------
+function dashGoto(partial){
+  state.dashMode = 'hierarchy';
+  state.dashNav = Object.assign({unidad:null, linea:null, projectId:null, personId:null}, partial);
+  renderContent();
+}
+function dashBreadcrumb(){
+  const nav = state.dashNav;
+  const parts = ['<a onclick="dashGoto({})" class="'+(!nav.unidad?'active':'')+'">Jerarquía (Todo)</a>'];
+  if(nav.unidad) parts.push('<a onclick="dashGoto({unidad:\''+nav.unidad+'\'})" class="'+(nav.unidad&&!nav.linea?'active':'')+'">'+nav.unidad+'</a>');
+  if(nav.linea) parts.push('<a onclick="dashGoto({unidad:\''+nav.unidad+'\',linea:\''+nav.linea+'\'})" class="'+(nav.linea&&!nav.projectId?'active':'')+'">'+nav.linea+'</a>');
+  if(nav.projectId){
+    const proj = state.projects.find(x=>x.id===nav.projectId);
+    parts.push('<a onclick="dashGoto({unidad:\''+nav.unidad+'\',linea:\''+nav.linea+'\',projectId:\''+nav.projectId+'\'})" class="'+(nav.projectId&&!nav.personId?'active':'')+'">'+(proj?proj.name:'Proyecto')+'</a>');
+  }
+  if(nav.personId){
+    const per = getPerson(nav.personId);
+    parts.push('<a class="active">'+(per?per.name:'Persona')+'</a>');
+  }
+  return '<div class="breadcrumb">'+parts.join('<span class="crumb-sep">›</span>')+'</div>';
+}
+
+function getAvailableYears(){
+  const set = new Set();
+  const currentY = String(new Date().getFullYear());
+  set.add(currentY);
+  (state.realEntries||[]).forEach(e => { if(e.month) set.add(e.month.slice(0,4)); });
+  (state.projects||[]).forEach(p => {
+    (p.assignments||[]).forEach(a => {
+      Object.keys(a.projectedByMonth||{}).forEach(m => set.add(m.slice(0,4)));
+    });
+  });
+  return Array.from(set).sort().reverse();
+}
+
+function initDashFilters(){
+  if(!Array.isArray(state.dashYearsFilter)) state.dashYearsFilter = [String(new Date().getFullYear())];
+  if(!Array.isArray(state.dashMonthsFilter)) state.dashMonthsFilter = [];
+}
+
+function isMonthInFilter(monthStr){
+  if(!monthStr) return false;
+  initDashFilters();
+  const parts = monthStr.split('-');
+  if(parts.length < 2) return false;
+  const y = parts[0], m = parts[1];
+
+  const yearMatch = state.dashYearsFilter.length === 0 || state.dashYearsFilter.includes('all') || state.dashYearsFilter.includes(y);
+  const monthMatch = state.dashMonthsFilter.length === 0 || state.dashMonthsFilter.includes('all') || state.dashMonthsFilter.includes(m);
+  return yearMatch && monthMatch;
+}
+
+function toggleDashYear(year){
+  initDashFilters();
+  if(year === 'all'){
+    state.dashYearsFilter = ['all'];
+  } else {
+    state.dashYearsFilter = state.dashYearsFilter.filter(x => x !== 'all');
+    if(state.dashYearsFilter.includes(year)){
+      state.dashYearsFilter = state.dashYearsFilter.filter(x => x !== year);
+    } else {
+      state.dashYearsFilter.push(year);
+    }
+    if(state.dashYearsFilter.length === 0) state.dashYearsFilter = ['all'];
+  }
+  renderContent();
+}
+
+function toggleDashMonth(monthNum){
+  initDashFilters();
+  if(monthNum === 'all'){
+    state.dashMonthsFilter = [];
+  } else {
+    state.dashMonthsFilter = state.dashMonthsFilter.filter(x => x !== 'all');
+    if(state.dashMonthsFilter.includes(monthNum)){
+      state.dashMonthsFilter = state.dashMonthsFilter.filter(x => x !== monthNum);
+    } else {
+      state.dashMonthsFilter.push(monthNum);
+    }
+  }
+  renderContent();
+}
+
+function renderDashTimeFilterPanel(){
+  initDashFilters();
+  const years = getAvailableYears();
+  const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+  const allYearsActive = state.dashYearsFilter.includes('all') || state.dashYearsFilter.length === 0;
+  let yearPills = '<button class="btn btn-sm '+(allYearsActive?'btn-primary':'btn-secondary')+'" style="border-radius:14px; padding:3px 10px; font-size:12px;" onclick="toggleDashYear(\'all\')">Todos los Años</button>';
+
+  years.forEach(y => {
+    const active = !allYearsActive && state.dashYearsFilter.includes(y);
+    yearPills += '<button class="btn btn-sm '+(active?'btn-primary':'btn-secondary')+'" style="border-radius:14px; padding:3px 10px; font-size:12px;" onclick="toggleDashYear(\''+y+'\')">' + (active ? '✓ ' : '') + y + '</button>';
+  });
+
+  const allMonthsActive = state.dashMonthsFilter.length === 0 || state.dashMonthsFilter.includes('all');
+  let monthPills = '<button class="btn btn-sm '+(allMonthsActive?'btn-primary':'btn-secondary')+'" style="border-radius:14px; padding:3px 10px; font-size:12px;" onclick="toggleDashMonth(\'all\')">Todos los Meses (12M)</button>';
+
+  monthsShort.forEach((mLabel, idx) => {
+    const mNum = String(idx + 1).padStart(2, '0');
+    const active = !allMonthsActive && state.dashMonthsFilter.includes(mNum);
+    monthPills += '<button class="btn btn-sm '+(active?'btn-primary':'btn-secondary')+'" style="border-radius:14px; padding:3px 10px; font-size:12px;" onclick="toggleDashMonth(\''+mNum+'\')">' + (active ? '✓ ' : '') + mLabel + '</button>';
+  });
+
+  let periodText = '';
+  if(allYearsActive) periodText += 'Años: Todos';
+  else periodText += 'Años: ' + state.dashYearsFilter.join(', ');
+
+  if(allMonthsActive) periodText += ' · Meses: Todos';
+  else {
+    const monthNames = state.dashMonthsFilter.map(m => monthsShort[parseInt(m, 10)-1]);
+    periodText += ' · Meses: ' + monthNames.join(', ');
+  }
+
+  return '<div style="background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:18px; box-shadow:0 2px 4px rgba(0,0,0,0.02);">'
+    + '<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">'
+    + '<div style="display:flex; align-items:center; gap:8px;">'
+    + '<span style="font-size:13px; font-weight:700; color:var(--text)">📅 Filtro Temporal (Multiselección)</span>'
+    + '<span class="chip" style="background:#F0F2F5; color:var(--muted); font-size:11.5px; font-weight:600;">' + periodText + '</span>'
+    + '</div>'
+    + '</div>'
+    + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">'
+    + '<span style="font-size:12px; font-weight:600; color:var(--muted); min-width:55px;">Año(s):</span>'
+    + '<div style="display:flex; gap:5px; flex-wrap:wrap;">' + yearPills + '</div>'
+    + '</div>'
+    + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+    + '<span style="font-size:12px; font-weight:600; color:var(--muted); min-width:55px;">Mes(es):</span>'
+    + '<div style="display:flex; gap:5px; flex-wrap:wrap;">' + monthPills + '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function getFilteredTotals(){
+  let projClient = 0, actClient = 0;
+  let projAdmin = 0, actAdmin = 0;
+
+  state.projects.forEach(p => {
+    const isAdmin = p.tipo === 'admin';
+    (p.assignments||[]).forEach(a => {
+      Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+        if(isMonthInFilter(m)){
+          if(isAdmin) projAdmin += Number(h||0);
+          else projClient += Number(h||0);
+        }
+      });
+    });
+  });
+
+  state.realEntries.forEach(e => {
+    if(isMonthInFilter(e.month)){
+      const hours = Number(e.hours||0);
+      if(e.category === 'admin') {
+        actAdmin += hours;
+      } else {
+        const proj = state.projects.find(p => p.id === e.projectId);
+        if(proj && proj.tipo === 'admin') actAdmin += hours;
+        else actClient += hours;
+      }
+    }
+  });
+
+  return { projClient, actClient, projAdmin, actAdmin };
+}
+
+function renderDashModeSelector(){
+  const mode = state.dashMode || 'global';
+  return '<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; background:#fff; padding:10px 14px; border-radius:10px; border:1px solid var(--border); box-shadow:0 2px 4px rgba(0,0,0,0.02);">'
+    + '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">'
+    + '<span style="font-size:12.5px; font-weight:700; color:var(--muted); margin-right:4px">Perspectiva:</span>'
+    + '<button class="tab-btn '+(mode==='global'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'global\')">🌐 Resumen Global</button>'
+    + '<button class="tab-btn '+(mode==='hierarchy'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'hierarchy\')">🏢 Jerarquía (Drilldown)</button>'
+    + '<button class="tab-btn '+(mode==='unidades'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'unidades\')">📁 Todas las Unidades</button>'
+    + '<button class="tab-btn '+(mode==='lineas'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'lineas\')">🏷️ Todas las Líneas</button>'
+    + '<button class="tab-btn '+(mode==='proyectos'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'proyectos\')">📊 Todos los Proyectos</button>'
+    + '<button class="tab-btn '+(mode==='personas'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'personas\')">👥 Todo el Equipo</button>'
+    + '</div>'
+    + '<div style="display:flex; gap:8px; align-items:center;" class="no-print">'
+    + '<button class="btn btn-secondary btn-sm" onclick="exportFullReportExcel()">📥 Exportar Excel</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Imprimir PDF</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function dashCardFor(label, sublabel, personIds, onClick){
+  const people = state.people.filter(p=>personIds.has(p.id));
+  const projects = projectsForPeopleIds(personIds);
+  let projH=0, actH=0;
+  projects.forEach(pr=>{ const t = projectTotalsForPeople(pr, personIds); projH+=t.projectedHours; actH+=t.actualHours; });
+  return '<div class="card expand-toggle" onclick="'+onClick+'">'
+    + '<div class="card-header"><div><div class="card-title">'+label+'</div><div class="card-sub">'+sublabel+' · '+people.length+' persona(s) · '+projects.length+' proyecto(s)</div></div>'
+    + '<span class="link-btn">Ver ▶</span></div>'
+    + '<div style="max-width:520px">'+gauge(projH, actH)+'</div>'
+    + '</div>';
+}
+
+function renderDashboardCharts(){
+  initDashFilters();
+
+  // 1. Gráfico Mensual
+  const ctxMonth = document.getElementById('chartMensualProyVsReal');
+  if(ctxMonth){
+    if(activeCharts.monthlyChart){ activeCharts.monthlyChart.destroy(); activeCharts.monthlyChart=null; }
+
+    const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const labelsM = monthsShort;
+    const projM = Array(12).fill(0);
+    const actM = Array(12).fill(0);
+
+    state.projects.forEach(p => {
+      (p.assignments||[]).forEach(a => {
+        Object.entries(a.projectedByMonth||{}).forEach(([monthKey, hours]) => {
+          if(isMonthInFilter(monthKey)){
+            const mNum = parseInt(monthKey.slice(5, 7), 10);
+            if(mNum >= 1 && mNum <= 12) projM[mNum - 1] += Number(hours||0);
+          }
+        });
+      });
+    });
+
+    state.realEntries.forEach(e => {
+      if(e.month && isMonthInFilter(e.month)){
+        const mNum = parseInt(e.month.slice(5, 7), 10);
+        if(mNum >= 1 && mNum <= 12) actM[mNum - 1] += Number(e.hours||0);
+      }
+    });
+
+    activeCharts.monthlyChart = new Chart(ctxMonth, {
+      type: 'bar',
+      data: {
+        labels: labelsM,
+        datasets: [
+          { label: 'HH Proyectadas', data: projM, backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 45 },
+          { label: 'HH Reales (Ejecutadas)', data: actM, backgroundColor: '#1E9E8B', borderRadius: 4, maxBarThickness: 45 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+        },
+        scales: { y: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+      }
+    });
+  }
+
+  // 2. Gráfico 50% Izquierda: Unidad de Negocio
+  const ctxUnidades = document.getElementById('chartUnidadesProyVsReal');
+  if(ctxUnidades){
+    if(activeCharts.unidadesChart){ activeCharts.unidadesChart.destroy(); activeCharts.unidadesChart=null; }
+
+    const unidades = state.config.unidades || [];
+    const labelsU = [];
+    const projU = [];
+    const actU = [];
+
+    unidades.forEach(u => {
+      labelsU.push(u);
+      const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
+      let pH = 0, aH = 0;
+
+      state.projects.forEach(p => {
+        (p.assignments||[]).forEach(a => {
+          if(personIds.has(a.personId)){
+            Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+              if(isMonthInFilter(m)) pH += Number(h||0);
+            });
+          }
+        });
+      });
+
+      state.realEntries.forEach(e => {
+        if(isMonthInFilter(e.month) && personIds.has(e.personId)){
+          aH += Number(e.hours||0);
+        }
+      });
+
+      projU.push(pH);
+      actU.push(aH);
+    });
+
+    activeCharts.unidadesChart = new Chart(ctxUnidades, {
+      type: 'bar',
+      data: {
+        labels: labelsU.length ? labelsU : ['Sin unidades'],
+        datasets: [
+          { label: 'HH Proyectadas', data: projU.length ? projU : [0], backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 35 },
+          { label: 'HH Reales (Ejecutadas)', data: actU.length ? actU : [0], backgroundColor: '#1E9E8B', borderRadius: 4, maxBarThickness: 35 }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+        },
+        scales: { x: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+      }
+    });
+  }
+
+  // 3. Gráfico 50% Derecha: Línea de Negocio
+  const ctxLineas = document.getElementById('chartLineasProyVsReal');
+  if(ctxLineas){
+    if(activeCharts.lineasChart){ activeCharts.lineasChart.destroy(); activeCharts.lineasChart=null; }
+
+    const lineas = state.config.lineasNegocio || [];
+    const labelsL = [];
+    const projL = [];
+    const actL = [];
+
+    lineas.forEach(l => {
+      labelsL.push(l.nombre);
+      const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
+      let pH = 0, aH = 0;
+
+      state.projects.forEach(p => {
+        (p.assignments||[]).forEach(a => {
+          if(personIds.has(a.personId)){
+            Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+              if(isMonthInFilter(m)) pH += Number(h||0);
+            });
+          }
+        });
+      });
+
+      state.realEntries.forEach(e => {
+        if(isMonthInFilter(e.month) && personIds.has(e.personId)){
+          aH += Number(e.hours||0);
+        }
+      });
+
+      projL.push(pH);
+      actL.push(aH);
+    });
+
+    activeCharts.lineasChart = new Chart(ctxLineas, {
+      type: 'bar',
+      data: {
+        labels: labelsL.length ? labelsL : ['Sin líneas'],
+        datasets: [
+          { label: 'HH Proyectadas', data: projL.length ? projL : [0], backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 35 },
+          { label: 'HH Reales (Ejecutadas)', data: actL.length ? actL : [0], backgroundColor: '#1E9E8B', borderRadius: 4, maxBarThickness: 35 }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+        },
+        scales: { x: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+      }
+    });
+  }
+}
+
+function renderDashboardVisualsHeader(){
+  return '<div class="card" style="margin-bottom:20px;">'
+    + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+    + '<div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📊 Evolución Mensual de HH: Proyectado vs. Real</div>'
+    + '<div class="card-sub" style="font-size:12px">Comparativa de horas planificadas (barra azul) vs. horas reales ejecutadas (barra verde) por mes</div>'
+    + '</div>'
+    + '</div>'
+    + '<div style="height:280px; position:relative"><canvas id="chartMensualProyVsReal"></canvas></div>'
+    + '</div>'
+
+    + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:20px;">'
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">🏢 HH por Unidad de Negocio</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Proyectado (azul) vs. Real (verde) agrupado por Unidad</div>'
+    + '<div style="height:260px; position:relative"><canvas id="chartUnidadesProyVsReal"></canvas></div>'
+    + '</div>'
+
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">🏷️ HH por Línea de Negocio</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Proyectado (azul) vs. Real (verde) agrupado por Línea</div>'
+    + '<div style="height:260px; position:relative"><canvas id="chartLineasProyVsReal"></canvas></div>'
+    + '</div>'
+    + '</div>';
+}
+
+function exportFullReportExcel(){
+  try {
+    const wb = XLSX.utils.book_new();
+
+    // Tab 1: Proyectos
+    const projHeaders = ['PEP', 'Nombre Proyecto', 'Cliente', 'Estado', 'Fecha Inicio', 'Fecha Cierre', 'Monto Adjudicado (CLP)', 'HH Proyectadas', 'HH Reales', 'Avance %', 'Costo Proyectado (CLP)', 'Costo Real (CLP)', 'Desviacion Costo (CLP)'];
+    const projRows = state.projects.map(p => {
+      const t = projectTotals(p);
+      const dev = t.actualCost - t.projectedCost;
+      const pct = t.projectedHours > 0 ? Math.round((t.actualHours / t.projectedHours) * 100) + '%' : '—';
+      return [
+        p.pep || '',
+        p.name,
+        p.client || '',
+        p.status,
+        p.fechaInicio || '',
+        p.fechaCierre || '',
+        p.montoAdjudicacion || 0,
+        t.projectedHours,
+        t.actualHours,
+        pct,
+        t.projectedCost,
+        t.actualCost,
+        dev
+      ];
+    });
+    const wsProj = XLSX.utils.aoa_to_sheet([projHeaders].concat(projRows));
+    XLSX.utils.book_append_sheet(wb, wsProj, 'Resumen Proyectos');
+
+    // Tab 2: Equipo
+    const teamHeaders = ['Nombre', 'Línea de Negocio', 'Unidad', 'Rol', 'Tarifa/h (CLP)', 'Capacidad Mensual (h)', 'Total HH Proyectadas', 'Total HH Reales'];
+    const teamRows = state.people.map(p => {
+      let totalProj = 0, totalAct = 0;
+      state.projects.forEach(pr => {
+        (pr.assignments || []).forEach(a => {
+          if (a.personId === p.id) {
+            totalProj += assignmentProjectedTotal(a);
+            totalAct += projectRealHoursForPerson(pr.id, p.id);
+          }
+        });
+      });
+      return [
+        p.name,
+        p.lineaNegocio || '',
+        getUnidadForLinea(p.lineaNegocio),
+        p.role,
+        personRate(p),
+        personCapacity(p),
+        totalProj,
+        totalAct
+      ];
+    });
+    const wsTeam = XLSX.utils.aoa_to_sheet([teamHeaders].concat(teamRows));
+    XLSX.utils.book_append_sheet(wb, wsTeam, 'Resumen Equipo');
+
+    // Tab 3: Registros Reales
+    const entryHeaders = ['Mes', 'Categoría', 'Proyecto / Referencia', 'Persona', 'Rol', 'Horas Reales', 'Nota', 'Fuente'];
+    const entryRows = state.realEntries.map(e => {
+      const person = getPerson(e.personId);
+      const proj = e.projectId ? state.projects.find(pr => pr.id === e.projectId) : null;
+      return [
+        e.month,
+        e.category === 'admin' ? 'Administración' : 'Proyecto',
+        e.category === 'admin' ? 'Administración' : (proj ? proj.name : 'Proyecto Eliminado'),
+        person ? person.name : '',
+        person ? person.role : '',
+        e.hours,
+        e.note || '',
+        e.source || 'manual'
+      ];
+    });
+    const wsEntries = XLSX.utils.aoa_to_sheet([entryHeaders].concat(entryRows));
+    XLSX.utils.book_append_sheet(wb, wsEntries, 'Registros Reales');
+
+    XLSX.writeFile(wb, 'HH_Tracker_Reporte_Consolidado_' + currentMonth() + '.xlsx');
+    showToast('Reporte Excel generado correctamente.');
+  } catch(err) {
+    console.error(err);
+    showToast('Error al exportar reporte Excel.');
+  }
+}
+
+function renderDashAllUnits(){
+  const unidades = state.config.unidades||[];
+  const clasificados = new Set();
+  (state.config.lineasNegocio||[]).forEach(l=>{ if(l.unidad) peopleInLinea(l.nombre).forEach(p=>clasificados.add(p.id)); });
+  const sinUnidad = state.people.filter(p=>!clasificados.has(p.id));
+
+  let html = '<div class="section-label">Todas las Unidades de Negocio</div>';
+  if(unidades.length===0 && sinUnidad.length===0){
+    return html + '<div class="card"><div class="empty"><div class="display">Sin unidades configuradas</div></div></div>';
+  }
+  html += unidades.map(u=>{
+    const ids = new Set(peopleInUnidad(u).map(p=>p.id));
+    return dashCardFor(u, 'Unidad de Negocio', ids, "dashGoto({unidad:'"+u+"'})");
+  }).join('');
+  if(sinUnidad.length){
+    const ids = new Set(sinUnidad.map(p=>p.id));
+    html += dashCardFor('Sin unidad asignada', 'Personas sin línea/unidad', ids, "switchMainView('config')");
+  }
+  return html;
+}
+
+function renderDashAllLineas(){
+  const lineas = state.config.lineasNegocio||[];
+  let html = '<div class="section-label">Todas las Líneas de Negocio (Vista Transversal)</div>';
+  if(lineas.length===0){
+    return html + '<div class="card"><div class="empty"><div class="display">Sin líneas de negocio configuradas</div></div></div>';
+  }
+  html += lineas.map(l=>{
+    const ids = new Set(peopleInLinea(l.nombre).map(p=>p.id));
+    const uLabel = l.unidad ? 'Unidad: '+l.unidad : 'Sin unidad';
+    return dashCardFor(l.nombre, 'Línea de Negocio ('+uLabel+')', ids, "dashGoto({unidad:'"+(l.unidad||'')+"',linea:'"+l.nombre+"'})");
+  }).join('');
+  return html;
+}
+
+function renderDashAllProjects(){
+  let html = '<div class="section-label">Todos los Proyectos del Portafolio</div>';
+  if(state.projects.length===0){
+    return html + '<div class="card"><div class="empty"><div class="display">Sin proyectos registrados</div></div></div>';
+  }
+  html += state.projects.map(p=>{
+    const t = projectTotals(p);
+    const sm = statusMeta(p.status);
+    const periodo = p.startMonth ? ' · '+fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : '';
+    const devCost = t.actualCost - t.projectedCost;
+    return '<div class="card expand-toggle" onclick="dashGoto({projectId:\''+p.id+'\'})">'
+      + '<div class="card-header"><div><div class="card-title">'+p.name+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
+      + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+periodo+'</div></div>'
+      + '<span class="link-btn">Ver Detalle ▶</span></div>'
+      + '<div style="max-width:520px">'+gauge(t.projectedHours, t.actualHours)+'</div>'
+      + '<div style="display:flex; gap:18px; margin-top:10px; font-size:12px;" class="muted">'
+      + '<span>$ Proyectado: <b class="mono" style="color:var(--text)">'+fmtMoney(t.projectedCost)+'</b></span>'
+      + '<span>$ Real: <b class="mono" style="color:var(--text)">'+fmtMoney(t.actualCost)+'</b></span>'
+      + '<span>Desviación: <b class="mono" style="color:'+(devCost>0?'var(--red)':'var(--teal)')+'">'+(devCost>0?'+':'')+fmtMoney(devCost)+'</b></span>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  return html;
+}
+
+function renderDashAllPeople(){
+  let html = '<div class="section-label">Todo el Equipo (Resumen Transversal)</div>';
+  if(state.people.length===0){
+    return html + '<div class="card"><div class="empty"><div class="display">Sin integrantes en el equipo</div></div></div>';
+  }
+  const rows = state.people.map(p=>{
+    let totalProj = 0, totalAct = 0;
+    state.projects.forEach(pr=>{
+      (pr.assignments||[]).forEach(a=>{
+        if(a.personId===p.id){
+          totalProj += assignmentProjectedTotal(a);
+          totalAct += projectRealHoursForPerson(pr.id, p.id);
+        }
+      });
+    });
+    return '<tr>'
+      + '<td><b>'+p.name+'</b></td>'
+      + '<td>'+(p.lineaNegocio||'<span class="muted">Sin línea</span>')+'</td>'
+      + '<td>'+p.role+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtMoney(personRate(p))+'/h</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(totalProj)+' h</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(totalAct)+' h</td>'
+      + '<td style="min-width:180px">'+gauge(totalProj, totalAct)+'</td>'
+      + '</tr>';
+  }).join('');
+
+  html += '<div class="card"><table><thead><tr><th>Nombre</th><th>Línea de Negocio</th><th>Rol</th><th class="num">Tarifa/h</th><th class="num">Total Proyectadas</th><th class="num">Total Reales</th><th>Consumo</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  return html;
+}
+
+function renderDashUnidadesComplianceTable(){
+  initDashFilters();
+  const year = (state.dashYearsFilter.length === 1 && state.dashYearsFilter[0] !== 'all')
+    ? state.dashYearsFilter[0]
+    : String(new Date().getFullYear());
+
+  const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const monthsFull = monthsShort.map((m, idx) => {
+    return { num: String(idx + 1).padStart(2, '0'), name: m };
+  });
+
+  const unidades = state.config.unidades || [];
+  if(unidades.length === 0){
+    return '<div class="card"><div class="empty"><div class="display">Sin Unidades de Negocio configuradas</div></div></div>';
+  }
+
+  let headCols = monthsFull.map(m => '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center">' + m.name + '</th>').join('');
+  headCols += '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center; background:var(--surface)">Total %</th>';
+
+  const rows = unidades.map(u => {
+    const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
+
+    let totalProj = 0, totalAct = 0;
+    const monthCells = monthsFull.map(m => {
+      const monthKey = year + '-' + m.num;
+      const isFiltered = isMonthInFilter(monthKey);
+
+      let projM = 0, actM = 0;
+      state.projects.forEach(p => {
+        (p.assignments||[]).forEach(a => {
+          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]){
+            projM += Number(a.projectedByMonth[monthKey] || 0);
+          }
+        });
+      });
+
+      state.realEntries.forEach(e => {
+        if(isMonthInFilter(e.month) && e.month === monthKey && personIds.has(e.personId)){
+          actM += Number(e.hours || 0);
+        }
+      });
+
+      totalProj += projM;
+      totalAct += actM;
+
+      if(!isFiltered) return '<td class="muted" style="text-align:center; opacity:0.35; font-size:11px">—</td>';
+
+      if(projM === 0 && actM === 0) return '<td class="muted" style="text-align:center; font-size:11px">—</td>';
+
+      if(projM === 0 && actM > 0){
+        return '<td style="text-align:center; font-size:11px; font-weight:700; color:var(--amber)" title="' + fmtH(actM) + 'h ejec. sin proyección">!' + fmtH(actM) + 'h</td>';
+      }
+
+      const ratio = actM / projM;
+      const pctVal = Math.round(ratio * 100);
+      let color = 'var(--teal)';
+      if(ratio > 1.1) color = 'var(--red)';
+      else if(ratio < 0.7) color = 'var(--amber)';
+
+      return '<td style="text-align:center; font-size:11.5px; font-weight:700; color:' + color + '" title="Proy: ' + fmtH(projM) + 'h | Real: ' + fmtH(actM) + 'h">' + pctVal + '%</td>';
+    }).join('');
+
+    const totalRatio = totalProj > 0 ? (totalAct / totalProj) : (totalAct > 0 ? 2 : 0);
+    const totalPct = totalProj > 0 ? Math.round(totalRatio * 100) + '%' : (totalAct > 0 ? '—' : '0%');
+    let totalColor = 'var(--teal)';
+    if(totalRatio > 1.1) totalColor = 'var(--red)';
+    else if(totalRatio < 0.7 && totalProj > 0) totalColor = 'var(--amber)';
+
+    return '<tr>'
+      + '<td style="font-size:12.5px; padding:8px 10px; font-weight:700;">🏢 ' + u + '</td>'
+      + monthCells
+      + '<td class="mono" style="text-align:center; font-weight:800; font-size:12px; color:' + totalColor + '; background:var(--surface)">' + totalPct + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card" style="margin-bottom:20px;">'
+    + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">'
+    + '<div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">🏢 Nivel 1: Matriz de Cumplimiento por Unidad de Negocio (%)</div>'
+    + '<div class="card-sub" style="font-size:12px">% Cumplimiento (HH Reales vs. Proyectadas) acumuladas por Unidad — Año ' + year + '</div>'
+    + '</div>'
+    + '</div>'
+    + '<div style="overflow-x:auto">'
+    + '<table style="width:100%; border-collapse:collapse; min-width:860px;">'
+    + '<thead><tr style="border-bottom:2px solid var(--border)">'
+    + '<th style="text-align:left; font-size:12px; padding:6px 10px;">Unidad de Negocio</th>'
+    + headCols
+    + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody>'
+    + '</table>'
+    + '</div>'
+    + '</div>';
+}
+
+function renderDashLineasComplianceTable(){
+  initDashFilters();
+  const year = (state.dashYearsFilter.length === 1 && state.dashYearsFilter[0] !== 'all')
+    ? state.dashYearsFilter[0]
+    : String(new Date().getFullYear());
+
+  const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const monthsFull = monthsShort.map((m, idx) => {
+    return { num: String(idx + 1).padStart(2, '0'), name: m };
+  });
+
+  const lineas = state.config.lineasNegocio || [];
+  if(lineas.length === 0){
+    return '<div class="card"><div class="empty"><div class="display">Sin Líneas de Negocio configuradas</div></div></div>';
+  }
+
+  let headCols = monthsFull.map(m => '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center">' + m.name + '</th>').join('');
+  headCols += '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center; background:var(--surface)">Total %</th>';
+
+  const rows = lineas.map(l => {
+    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
+    const unidadName = l.unidad ? ' (' + l.unidad + ')' : ' (Sin Unidad)';
+
+    let totalProj = 0, totalAct = 0;
+    const monthCells = monthsFull.map(m => {
+      const monthKey = year + '-' + m.num;
+      const isFiltered = isMonthInFilter(monthKey);
+
+      let projM = 0, actM = 0;
+      state.projects.forEach(p => {
+        (p.assignments||[]).forEach(a => {
+          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]){
+            projM += Number(a.projectedByMonth[monthKey] || 0);
+          }
+        });
+      });
+
+      state.realEntries.forEach(e => {
+        if(isMonthInFilter(e.month) && e.month === monthKey && personIds.has(e.personId)){
+          actM += Number(e.hours || 0);
+        }
+      });
+
+      totalProj += projM;
+      totalAct += actM;
+
+      if(!isFiltered) return '<td class="muted" style="text-align:center; opacity:0.35; font-size:11px">—</td>';
+
+      if(projM === 0 && actM === 0) return '<td class="muted" style="text-align:center; font-size:11px">—</td>';
+
+      if(projM === 0 && actM > 0){
+        return '<td style="text-align:center; font-size:11px; font-weight:700; color:var(--amber)" title="' + fmtH(actM) + 'h ejec. sin proyección">!' + fmtH(actM) + 'h</td>';
+      }
+
+      const ratio = actM / projM;
+      const pctVal = Math.round(ratio * 100);
+      let color = 'var(--teal)';
+      if(ratio > 1.1) color = 'var(--red)';
+      else if(ratio < 0.7) color = 'var(--amber)';
+
+      return '<td style="text-align:center; font-size:11.5px; font-weight:700; color:' + color + '" title="Proy: ' + fmtH(projM) + 'h | Real: ' + fmtH(actM) + 'h">' + pctVal + '%</td>';
+    }).join('');
+
+    const totalRatio = totalProj > 0 ? (totalAct / totalProj) : (totalAct > 0 ? 2 : 0);
+    const totalPct = totalProj > 0 ? Math.round(totalRatio * 100) + '%' : (totalAct > 0 ? '—' : '0%');
+    let totalColor = 'var(--teal)';
+    if(totalRatio > 1.1) totalColor = 'var(--red)';
+    else if(totalRatio < 0.7 && totalProj > 0) totalColor = 'var(--amber)';
+
+    return '<tr>'
+      + '<td style="font-size:12.5px; padding:8px 10px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'
+      + '<b>🏷️ ' + l.nombre + '</b><span class="muted" style="font-size:11.5px">' + unidadName + '</span>'
+      + '</td>'
+      + monthCells
+      + '<td class="mono" style="text-align:center; font-weight:800; font-size:12px; color:' + totalColor + '; background:var(--surface)">' + totalPct + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card" style="margin-bottom:20px;">'
+    + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">'
+    + '<div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">🏷️ Nivel 2: Matriz de Cumplimiento por Línea de Negocio (%)</div>'
+    + '<div class="card-sub" style="font-size:12px">% Cumplimiento (HH Reales vs. Proyectadas) acumuladas por Línea — Año ' + year + '</div>'
+    + '</div>'
+    + '</div>'
+    + '<div style="overflow-x:auto">'
+    + '<table style="width:100%; border-collapse:collapse; min-width:860px;">'
+    + '<thead><tr style="border-bottom:2px solid var(--border)">'
+    + '<th style="text-align:left; font-size:12px; padding:6px 10px;">Línea de Negocio (Unidad)</th>'
+    + headCols
+    + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody>'
+    + '</table>'
+    + '</div>'
+    + '</div>';
+}
+
+function renderDashProjectComplianceTable(){
+  initDashFilters();
+  const year = (state.dashYearsFilter.length === 1 && state.dashYearsFilter[0] !== 'all')
+    ? state.dashYearsFilter[0]
+    : String(new Date().getFullYear());
+
+  const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const monthsFull = monthsShort.map((m, idx) => {
+    return { num: String(idx + 1).padStart(2, '0'), name: m };
+  });
+
+  if(state.projects.length === 0){
+    return '<div class="card"><div class="empty"><div class="display">Sin proyectos para mostrar</div></div></div>';
+  }
+
+  let headCols = monthsFull.map(m => '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center">' + m.name + '</th>').join('');
+  headCols += '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center; background:var(--surface)">Total %</th>';
+
+  const rows = state.projects.map(p => {
+    const lineaName = p.lineaNegocio ? ' (' + p.lineaNegocio + ')' : ' (Sin LN)';
+    const typeBadge = p.tipo === 'admin'
+      ? '<span style="font-size:10px; padding:2px 5px; background:#FBF1DF; color:#DB9A2E; border-radius:4px; font-weight:700; margin-left:4px">⚙️ Admin</span>'
+      : '<span style="font-size:10px; padding:2px 5px; background:#E6F5F2; color:#1E9E8B; border-radius:4px; font-weight:700; margin-left:4px">📂 Proy</span>';
+
+    let totalProj = 0, totalAct = 0;
+    const monthCells = monthsFull.map(m => {
+      const monthKey = year + '-' + m.num;
+      const isFiltered = isMonthInFilter(monthKey);
+
+      let projM = 0;
+      (p.assignments||[]).forEach(a => {
+        if(a.projectedByMonth && a.projectedByMonth[monthKey]){
+          projM += Number(a.projectedByMonth[monthKey] || 0);
+        }
+      });
+
+      let actM = 0;
+      state.realEntries.forEach(e => {
+        if(e.category !== 'admin' && e.projectId === p.id && e.month === monthKey){
+          actM += Number(e.hours || 0);
+        } else if(p.tipo === 'admin' && e.category === 'admin' && e.month === monthKey){
+          actM += Number(e.hours || 0);
+        }
+      });
+
+      totalProj += projM;
+      totalAct += actM;
+
+      if(!isFiltered) return '<td class="muted" style="text-align:center; opacity:0.35; font-size:11px">—</td>';
+
+      if(projM === 0 && actM === 0) {
+        return '<td class="muted" style="text-align:center; font-size:11px">—</td>';
+      }
+
+      if(projM === 0 && actM > 0){
+        return '<td style="text-align:center; font-size:11px; font-weight:700; color:var(--amber)" title="' + fmtH(actM) + 'h ejec. sin proyección">!' + fmtH(actM) + 'h</td>';
+      }
+
+      const ratio = actM / projM;
+      const pctVal = Math.round(ratio * 100);
+      let color = 'var(--teal)';
+      if(ratio > 1.1) color = 'var(--red)';
+      else if(ratio < 0.7) color = 'var(--amber)';
+
+      return '<td style="text-align:center; font-size:11.5px; font-weight:700; color:' + color + '" title="Proy: ' + fmtH(projM) + 'h | Real: ' + fmtH(actM) + 'h">' + pctVal + '%</td>';
+    }).join('');
+
+    const totalRatio = totalProj > 0 ? (totalAct / totalProj) : (totalAct > 0 ? 2 : 0);
+    const totalPct = totalProj > 0 ? Math.round(totalRatio * 100) + '%' : (totalAct > 0 ? '—' : '0%');
+    let totalColor = 'var(--teal)';
+    if(totalRatio > 1.1) totalColor = 'var(--red)';
+    else if(totalRatio < 0.7 && totalProj > 0) totalColor = 'var(--amber)';
+
+    return '<tr>'
+      + '<td style="font-size:12.5px; padding:8px 10px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'
+      + '<b>' + p.name + '</b><span class="muted" style="font-size:11.5px">' + lineaName + '</span>' + typeBadge
+      + '</td>'
+      + monthCells
+      + '<td class="mono" style="text-align:center; font-weight:800; font-size:12px; color:' + totalColor + '; background:var(--surface)">' + totalPct + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card" style="margin-bottom:20px;">'
+    + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">'
+    + '<div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📊 Nivel 3: Matriz de Cumplimiento por Proyecto (%)</div>'
+    + '<div class="card-sub" style="font-size:12px">% Cumplimiento (HH Reales vs. Proyectadas) por mes — Año ' + year + '</div>'
+    + '</div>'
+    + '</div>'
+    + '<div style="overflow-x:auto">'
+    + '<table style="width:100%; border-collapse:collapse; min-width:860px;">'
+    + '<thead><tr style="border-bottom:2px solid var(--border)">'
+    + '<th style="text-align:left; font-size:12px; padding:6px 10px;">Proyecto (Línea de Negocio)</th>'
+    + headCols
+    + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody>'
+    + '</table>'
+    + '</div>'
+    + '</div>';
+}
+
+function renderDashInsightsBanner(){
+  initDashFilters();
+  const year = (state.dashYearsFilter.length === 1 && state.dashYearsFilter[0] !== 'all')
+    ? state.dashYearsFilter[0]
+    : String(new Date().getFullYear());
+
+  let totalProjH = 0, totalActH = 0, totalProjCost = 0, totalActCost = 0;
+  let overbudgetProjects = [];
+  let unprojectedHoursProjects = [];
+
+  state.projects.forEach(p => {
+    let pProjH = 0, pActH = 0;
+    (p.assignments||[]).forEach(a => {
+      Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+        if(isMonthInFilter(m)) pProjH += Number(h||0);
+      });
+    });
+    state.realEntries.forEach(e => {
+      if(isMonthInFilter(e.month)){
+        if(e.category !== 'admin' && e.projectId === p.id){
+          pActH += Number(e.hours||0);
+        } else if(p.tipo === 'admin' && e.category === 'admin'){
+          pActH += Number(e.hours||0);
+        }
+      }
+    });
+
+    totalProjH += pProjH;
+    totalActH += pActH;
+    
+    if(pProjH > 0 && pActH > pProjH * 1.1){
+      overbudgetProjects.push({ name: p.name, proj: pProjH, act: pActH });
+    } else if(pProjH === 0 && pActH > 0){
+      unprojectedHoursProjects.push({ name: p.name, act: pActH });
+    }
+  });
+
+  // Find most efficient line
+  let bestLine = '—', bestLineRatio = 999;
+  (state.config.lineasNegocio||[]).forEach(l => {
+    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
+    let pH = 0, aH = 0;
+    state.projects.forEach(p => {
+      (p.assignments||[]).forEach(a => {
+        if(personIds.has(a.personId)){
+          Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+            if(isMonthInFilter(m)) pH += Number(h||0);
+          });
+        }
+      });
+    });
+    state.realEntries.forEach(e => {
+      if(isMonthInFilter(e.month) && personIds.has(e.personId)){
+        aH += Number(e.hours||0);
+      }
+    });
+
+    if(pH > 0){
+      const diff = Math.abs(1 - (aH / pH));
+      if(diff < bestLineRatio){
+        bestLineRatio = diff;
+        bestLine = l.nombre + ' (' + Math.round((aH / pH)*100) + '% cumplimiento)';
+      }
+    }
+  });
+
+  let insightsList = [];
+  if(overbudgetProjects.length > 0){
+    insightsList.push('<div class="alert-item red">🚨 <b>Desviación Crítica:</b> ' + overbudgetProjects.length + ' proyecto(s) superan el 110% de HH planificadas (' + overbudgetProjects.map(p=>p.name).join(', ') + ').</div>');
+  } else {
+    insightsList.push('<div class="alert-item teal" style="background:#E6F5F2; color:#1E9E8B">🟢 <b>Presupuesto Saludable:</b> Ningún proyecto excede significativamente el margen proyectado.</div>');
+  }
+
+  if(unprojectedHoursProjects.length > 0){
+    insightsList.push('<div class="alert-item amber">⚠️ <b>Horas No Planificadas:</b> ' + unprojectedHoursProjects.length + ' proyecto(s) registraron ejecuciones sin contar con proyección previa.</div>');
+  }
+
+  if(bestLine !== '—'){
+    insightsList.push('<div class="alert-item" style="background:#E8F0FE; color:#1E2A5E">🏆 <b>Línea de Negocio Destacada:</b> ' + bestLine + '.</div>');
+  }
+
+  return '<div class="card" style="background:linear-gradient(135deg, #FFFFFF 0%, #F8F9FD 100%); border:1px solid #DCE1F0; margin-bottom:20px;">'
+    + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">'
+    + '<div style="display:flex; align-items:center; gap:8px;">'
+    + '<span style="font-size:20px;">💡</span>'
+    + '<div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">Diagnóstico e Insights del Portafolio</div>'
+    + '<div class="card-sub" style="font-size:12px">Análisis analítico automatizado 100% local en tiempo real — Año ' + year + '</div>'
+    + '</div>'
+    + '</div>'
+    + '<div style="display:flex; gap:10px;">'
+    + '<button class="btn btn-secondary btn-sm no-print" onclick="exportComplianceMatrixCSV()">📥 Exportar Matriz CSV/Excel</button>'
+    + '</div>'
+    + '</div>'
+    + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:10px; margin-top:8px;">'
+    + insightsList.join('')
+    + '</div>'
+    + '</div>';
+}
+
+function exportComplianceMatrixCSV(){
+  initDashFilters();
+  const year = (state.dashYearsFilter.length === 1 && state.dashYearsFilter[0] !== 'all')
+    ? state.dashYearsFilter[0]
+    : String(new Date().getFullYear());
+
+  const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const monthsFull = monthsShort.map((m, idx) => String(idx + 1).padStart(2, '0'));
+
+  let csvRows = [];
+  csvRows.push(['MATRIZ DE CUMPLIMIENTO DE HORAS HOMBRE (%) - AÑO ' + year]);
+  csvRows.push([]);
+
+  // 1. Unidades
+  csvRows.push(['Nivel 1: Unidad de Negocio', ...monthsShort, 'Total %']);
+  (state.config.unidades||[]).forEach(u => {
+    const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
+    let totalProj = 0, totalAct = 0;
+    const mPcts = monthsFull.map(mNum => {
+      const monthKey = year + '-' + mNum;
+      let pM = 0, aM = 0;
+      state.projects.forEach(p => {
+        (p.assignments||[]).forEach(a => {
+          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]) pM += Number(a.projectedByMonth[monthKey]||0);
+        });
+      });
+      state.realEntries.forEach(e => {
+        if(e.month === monthKey && personIds.has(e.personId)) aM += Number(e.hours||0);
+      });
+      totalProj += pM; totalAct += aM;
+      return pM > 0 ? Math.round((aM/pM)*100) + '%' : (aM > 0 ? '!h' : '—');
+    });
+    const totPct = totalProj > 0 ? Math.round((totalAct/totalProj)*100) + '%' : '—';
+    csvRows.push([u, ...mPcts, totPct]);
+  });
+
+  csvRows.push([]);
+  // 2. Lineas
+  csvRows.push(['Nivel 2: Linea de Negocio (Unidad)', ...monthsShort, 'Total %']);
+  (state.config.lineasNegocio||[]).forEach(l => {
+    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
+    const label = l.nombre + (l.unidad ? ' (' + l.unidad + ')' : '');
+    let totalProj = 0, totalAct = 0;
+    const mPcts = monthsFull.map(mNum => {
+      const monthKey = year + '-' + mNum;
+      let pM = 0, aM = 0;
+      state.projects.forEach(p => {
+        (p.assignments||[]).forEach(a => {
+          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]) pM += Number(a.projectedByMonth[monthKey]||0);
+        });
+      });
+      state.realEntries.forEach(e => {
+        if(e.month === monthKey && personIds.has(e.personId)) aM += Number(e.hours||0);
+      });
+      totalProj += pM; totalAct += aM;
+      return pM > 0 ? Math.round((aM/pM)*100) + '%' : (aM > 0 ? '!h' : '—');
+    });
+    const totPct = totalProj > 0 ? Math.round((totalAct/totalProj)*100) + '%' : '—';
+    csvRows.push([label, ...mPcts, totPct]);
+  });
+
+  csvRows.push([]);
+  // 3. Proyectos
+  csvRows.push(['Nivel 3: Proyecto (Linea de Negocio)', ...monthsShort, 'Total %']);
+  state.projects.forEach(p => {
+    const label = p.name + (p.lineaNegocio ? ' (' + p.lineaNegocio + ')' : '');
+    let totalProj = 0, totalAct = 0;
+    const mPcts = monthsFull.map(mNum => {
+      const monthKey = year + '-' + mNum;
+      let pM = 0, aM = 0;
+      (p.assignments||[]).forEach(a => {
+        if(a.projectedByMonth && a.projectedByMonth[monthKey]) pM += Number(a.projectedByMonth[monthKey]||0);
+      });
+      state.realEntries.forEach(e => {
+        if(e.projectId === p.id && e.month === monthKey) aM += Number(e.hours||0);
+      });
+      totalProj += pM; totalAct += aM;
+      return pM > 0 ? Math.round((aM/pM)*100) + '%' : (aM > 0 ? '!h' : '—');
+    });
+    const totPct = totalProj > 0 ? Math.round((totalAct/totalProj)*100) + '%' : '—';
+    csvRows.push([label, ...mPcts, totPct]);
+  });
+
+  let csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvRows.map(e => e.map(x => '"' + String(x||'').replace(/"/g, '""') + '"').join(",")).join("\n");
+  let encodedUri = encodeURI(csvContent);
+  let link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "matriz_cumplimiento_hh_" + year + ".csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function downloadJSONBackup(){
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+    projects: state.projects,
+    people: state.people,
+    realEntries: state.realEntries,
+    config: state.config,
+    exportedAt: new Date().toISOString()
+  }, null, 2));
+  const dlAnchorElem = document.createElement('a');
+  dlAnchorElem.setAttribute("href", dataStr);
+  dlAnchorElem.setAttribute("download", "hh_tracker_backup_" + (new Date().toISOString().slice(0,10)) + ".json");
+  document.body.appendChild(dlAnchorElem);
+  dlAnchorElem.click();
+  dlAnchorElem.remove();
+  showToast("✅ Respaldo JSON descargado con éxito.");
+}
+
+function uploadJSONBackup(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try {
+      const imported = JSON.parse(e.target.result);
+      if(imported.projects && Array.isArray(imported.projects)) state.projects = imported.projects;
+      if(imported.people && Array.isArray(imported.people)) state.people = imported.people;
+      if(imported.realEntries && Array.isArray(imported.realEntries)) state.realEntries = imported.realEntries;
+      if(imported.config) state.config = imported.config;
+
+      persistProjects();
+      persistPeople();
+      persistEntries();
+      persistConfig();
+      renderAll();
+      showToast("✅ Respaldo restaurado con éxito.");
+    } catch(err){
+      alert("Error al leer el archivo JSON de respaldo. Verifique que el formato sea válido.");
+    }
+  };
+  reader.readAsText(file);
+}
+
+function getCriticalAlertsCount(){
+  initDashFilters();
+  let count = 0;
+  state.projects.forEach(p => {
+    let pProjH = 0, pActH = 0;
+    (p.assignments||[]).forEach(a => {
+      Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+        if(isMonthInFilter(m)) pProjH += Number(h||0);
+      });
+    });
+    state.realEntries.forEach(e => {
+      if(isMonthInFilter(e.month)){
+        if(e.category !== 'admin' && e.projectId === p.id) pActH += Number(e.hours||0);
+        else if(p.tipo === 'admin' && e.category === 'admin') pActH += Number(e.hours||0);
+      }
+    });
+    if(pProjH > 0 && pActH > pProjH * 1.1) count++;
+    else if(pProjH === 0 && pActH > 0) count++;
+  });
+  return count;
+}
+
+function toggleAlertsDrawer(){
+  initDashFilters();
+  let alerts = [];
+  state.projects.forEach(p => {
+    let pProjH = 0, pActH = 0;
+    (p.assignments||[]).forEach(a => {
+      Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+        if(isMonthInFilter(m)) pProjH += Number(h||0);
+      });
+    });
+    state.realEntries.forEach(e => {
+      if(isMonthInFilter(e.month)){
+        if(e.category !== 'admin' && e.projectId === p.id) pActH += Number(e.hours||0);
+        else if(p.tipo === 'admin' && e.category === 'admin') pActH += Number(e.hours||0);
+      }
+    });
+    if(pProjH > 0 && pActH > pProjH * 1.1){
+      alerts.push({ type:'red', text: '<b>' + p.name + '</b>: Sobrecosto de HH (' + fmtH(pActH) + 'h ejec. vs ' + fmtH(pProjH) + 'h proy.)' });
+    } else if(pProjH === 0 && pActH > 0){
+      alerts.push({ type:'amber', text: '<b>' + p.name + '</b>: ' + fmtH(pActH) + 'h ejecutadas sin proyección previa.' });
+    }
+  });
+
+  const existing = document.getElementById('alertsDrawerOverlay');
+  if(existing){ existing.remove(); return; }
+
+  const modalHtml = `
+    <div class="modal-overlay open" id="alertsDrawerOverlay" onclick="if(event.target===this) toggleAlertsDrawer()">
+      <div class="modal" style="max-width:500px; padding:20px; border-radius:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div style="font-weight:700; font-size:16px;">🔔 Centro de Alertas del Portafolio</div>
+          <span style="font-size:11px; cursor:pointer;" onclick="toggleAlertsDrawer()">✖ Cerrar</span>
+        </div>
+        <div style="max-height:360px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">
+          ${alerts.length ? alerts.map(a => `<div class="alert-item ${a.type}">${a.text}</div>`).join('') : '<div style="text-align:center; padding:30px; color:var(--muted);">🟢 No hay alertas críticas activas en este período</div>'}
+        </div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function toggleOmniboxModal(){
+  const existing = document.getElementById('omniboxModalOverlay');
+  if(existing){ existing.remove(); return; }
+
+  const modalHtml = `
+    <div class="modal-overlay open" id="omniboxModalOverlay" onclick="if(event.target===this) toggleOmniboxModal()">
+      <div class="modal" style="max-width:620px; padding:20px; border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,0.3)">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div style="font-weight:700; font-size:16px;">🔍 Buscador Global Omnibox</div>
+          <span style="font-size:11px; background:var(--bg); border:1px solid var(--border); padding:2px 6px; border-radius:4px; color:var(--muted)">ESC para cerrar</span>
+        </div>
+        <input type="text" id="omniboxInput" placeholder="Buscar por proyecto, PEP, persona, línea o unidad..." autofocus
+          style="width:100%; padding:12px 14px; font-size:15px; border:2px solid var(--teal); border-radius:8px; margin-bottom:14px; outline:none;"
+          oninput="renderOmniboxResults(this.value)">
+        <div id="omniboxResults" style="max-height:360px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  setTimeout(() => {
+    const input = document.getElementById('omniboxInput');
+    if(input) input.focus();
+    renderOmniboxResults('');
+  }, 50);
+}
+
+function renderOmniboxResults(query){
+  const container = document.getElementById('omniboxResults');
+  if(!container) return;
+
+  const q = normalizeStr(query);
+  let results = [];
+
+  // 1. Projects & PEPs
+  state.projects.forEach(p => {
+    if(!q || normalizeStr(p.name).includes(q) || (p.pep && normalizeStr(p.pep).includes(q)) || (p.lineaNegocio && normalizeStr(p.lineaNegocio).includes(q))){
+      results.push({
+        type: 'Proyecto',
+        icon: '📂',
+        title: p.name,
+        sub: (p.pep ? 'PEP: ' + p.pep + ' · ' : '') + (p.lineaNegocio || 'Sin LN'),
+        action: () => { toggleOmniboxModal(); dashGoto({projectId: p.id}); }
+      });
+    }
+  });
+
+  // 2. People
+  state.people.forEach(p => {
+    if(!q || normalizeStr(p.name).includes(q) || (p.role && normalizeStr(p.role).includes(q)) || (p.lineaNegocio && normalizeStr(p.lineaNegocio).includes(q))){
+      results.push({
+        type: 'Persona',
+        icon: '👤',
+        title: p.name,
+        sub: p.role + (p.lineaNegocio ? ' · LN: ' + p.lineaNegocio : ''),
+        action: () => { toggleOmniboxModal(); dashGoto({personId: p.id}); }
+      });
+    }
+  });
+
+  // 3. Business Lines
+  (state.config.lineasNegocio||[]).forEach(l => {
+    if(!q || normalizeStr(l.nombre).includes(q) || (l.unidad && normalizeStr(l.unidad).includes(q))){
+      results.push({
+        type: 'Línea de Negocio',
+        icon: '🏷️',
+        title: l.nombre,
+        sub: l.unidad ? 'Unidad: ' + l.unidad : 'Sin unidad',
+        action: () => { toggleOmniboxModal(); dashGoto({linea: l.nombre, unidad: l.unidad||''}); }
+      });
+    }
+  });
+
+  // 4. Business Units
+  (state.config.unidades||[]).forEach(u => {
+    if(!q || normalizeStr(u).includes(q)){
+      results.push({
+        type: 'Unidad de Negocio',
+        icon: '🏢',
+        title: u,
+        sub: 'Unidad de Negocio',
+        action: () => { toggleOmniboxModal(); dashGoto({unidad: u}); }
+      });
+    }
+  });
+
+  if(results.length === 0){
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--muted)">No se encontraron coincidencias</div>';
+    return;
+  }
+
+  container.innerHTML = results.slice(0, 12).map((item, idx) => {
+    return `<div onclick="window._omniboxActions[${idx}]()" style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-radius:8px; border:1px solid var(--border); cursor:pointer; transition:background .15s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:16px;">${item.icon}</span>
+        <div>
+          <div style="font-weight:700; font-size:13.5px;">${item.title}</div>
+          <div style="font-size:11.5px; color:var(--muted);">${item.sub}</div>
+        </div>
+      </div>
+      <span class="chip">${item.type}</span>
+    </div>`;
+  }).join('');
+
+  window._omniboxActions = results.slice(0, 12).map(r => r.action);
+}
+
+document.addEventListener('keydown', e => {
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'){
+    e.preventDefault();
+    toggleOmniboxModal();
+  }
+  if(e.key === 'Escape'){
+    const existing = document.getElementById('omniboxModalOverlay');
+    if(existing) existing.remove();
+  }
+});
+
+function renderDashGlobal(){
+  const totals = getFilteredTotals();
+  const totalProj = totals.projClient + totals.projAdmin;
+  const totalAct = totals.actClient + totals.actAdmin;
+
+  let html = renderDashInsightsBanner();
+
+  html += '<div class="section-label">Consolidado General del Portafolio (Horas Hombre)</div>';
+
+  html += '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:20px;">'
+    + '<div class="card" style="margin-bottom:0">'
+    + '<div class="card-title" style="font-size:14px; margin-bottom:2px">📂 Proyectos Cliente</div>'
+    + '<div class="card-sub" style="font-size:11.5px; margin-bottom:10px">Planificado vs. Ejecutado en período seleccionado</div>'
+    + gauge(totals.projClient, totals.actClient)
+    + '</div>'
+    + '<div class="card" style="margin-bottom:0">'
+    + '<div class="card-title" style="font-size:14px; margin-bottom:2px">⚙️ Administración Interna</div>'
+    + '<div class="card-sub" style="font-size:11.5px; margin-bottom:10px">Planificado vs. Ejecutado en período seleccionado</div>'
+    + gauge(totals.projAdmin, totals.actAdmin)
+    + '</div>'
+    + '<div class="card" style="margin-bottom:0">'
+    + '<div class="card-title" style="font-size:14px; margin-bottom:2px">📊 Total Consolidado Portafolio</div>'
+    + '<div class="card-sub" style="font-size:11.5px; margin-bottom:10px">Suma Total Portafolio en período seleccionado</div>'
+    + gauge(totalProj, totalAct)
+    + '</div>'
+    + '</div>';
+
+  // Gráficos del Dashboard
+  html += renderDashboardVisualsHeader();
+
+  // Secuencia de 3 Tablas Matrices de Macro a Micro
+  html += renderDashUnidadesComplianceTable();
+  html += renderDashLineasComplianceTable();
+  html += renderDashProjectComplianceTable();
+
+  return html;
+}
+
+function renderDashboard(){
+  if(state.projects.length===0 && state.people.length===0){
+    return '<div class="card"><div class="empty">'
+      + '<div class="display">Aún no hay datos cargados</div>'
+      + '<p>Crea tu equipo y tu primer proyecto para empezar a monitorear HH.</p>'
+      + '<div style="margin-top:16px"><button class="btn btn-primary" onclick="switchMainView(\'config\')">Ir a Configuración</button></div>'
+      + '</div></div>';
+  }
+  const mode = state.dashMode || 'global';
+  const selector = renderDashModeSelector();
+  const timeFilter = renderDashTimeFilterPanel();
+
+  if(mode === 'global') return selector + timeFilter + renderDashGlobal();
+  if(mode === 'unidades') return selector + timeFilter + renderDashAllUnits();
+  if(mode === 'lineas') return selector + timeFilter + renderDashAllLineas();
+  if(mode === 'proyectos') return selector + timeFilter + renderDashAllProjects();
+  if(mode === 'personas') return selector + timeFilter + renderDashAllPeople();
+
+  if(!state.dashNav) state.dashNav = {unidad:null, linea:null, projectId:null, personId:null};
+  const nav = state.dashNav;
+  const crumb = dashBreadcrumb();
+  if(nav.personId) return selector + timeFilter + crumb + renderDashPersona();
+  if(nav.projectId) return selector + timeFilter + crumb + renderDashProyecto();
+  if(nav.linea) return selector + timeFilter + crumb + renderDashLinea();
+  if(nav.unidad) return selector + timeFilter + crumb + renderDashUnidad();
+  return selector + timeFilter + charts + crumb + renderDashRoot();
+}
+
+function renderDashRoot(){
+  const unidades = state.config.unidades||[];
+  const clasificados = new Set();
+  (state.config.lineasNegocio||[]).forEach(l=>{ if(l.unidad) peopleInLinea(l.nombre).forEach(p=>clasificados.add(p.id)); });
+  const sinUnidad = state.people.filter(p=>!clasificados.has(p.id));
+
+  let html = '';
+  if(unidades.length===0 && sinUnidad.length===0){
+    return '<div class="card"><div class="empty"><div class="display">Sin unidades configuradas</div><p>Crea Unidades y Líneas de Negocio en Configuración para ver el desglose del portafolio.</p><div style="margin-top:12px"><button class="btn btn-primary" onclick="switchMainView(\'config\')">Ir a Configuración</button></div></div></div>';
+  }
+  html += unidades.map(u=>{
+    const ids = new Set(peopleInUnidad(u).map(p=>p.id));
+    return dashCardFor(u, 'Unidad', ids, "dashGoto({unidad:'"+u+"'})");
+  }).join('');
+  if(sinUnidad.length){
+    const ids = new Set(sinUnidad.map(p=>p.id));
+    html += dashCardFor('Sin unidad asignada', 'Personas sin línea/unidad', ids, "switchMainView('config')");
+  }
+  return html;
+}
+
+function renderDashUnidad(){
+  const unidad = state.dashNav.unidad;
+  const lineas = lineasDeUnidad(unidad);
+  if(lineas.length===0){
+    return '<div class="card"><div class="empty"><div class="display">Sin líneas de negocio en '+unidad+'</div><p>Asigna líneas de negocio a esta unidad desde Configuración.</p></div></div>';
+  }
+  return lineas.map(l=>{
+    const ids = new Set(peopleInLinea(l).map(p=>p.id));
+    return dashCardFor(l, 'Línea de Negocio', ids, "dashGoto({unidad:'"+unidad+"',linea:'"+l+"'})");
+  }).join('');
+}
+
+function renderDashLinea(){
+  const nav = state.dashNav;
+  const personIds = new Set(peopleInLinea(nav.linea).map(p=>p.id));
+  const projects = projectsForPeopleIds(personIds);
+  if(projects.length===0){
+    return '<div class="card"><div class="empty"><div class="display">Sin proyectos para esta línea</div><p>Ningún proyecto tiene personas de "'+nav.linea+'" asignadas todavía.</p></div></div>';
+  }
+  return projects.map(p=>{
+    const t = projectTotalsForPeople(p, personIds);
+    const sm = statusMeta(p.status);
+    const periodo = p.startMonth ? ' · '+fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : '';
+    return '<div class="card expand-toggle" onclick="dashGoto({unidad:\''+nav.unidad+'\',linea:\''+nav.linea+'\',projectId:\''+p.id+'\'})">'
+      + '<div class="card-header"><div><div class="card-title">'+p.name+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
+      + '<div class="card-sub">'+(p.client||'Sin cliente')+periodo+' · horas de esta línea en el proyecto</div></div>'
+      + '<span class="link-btn">Ver ▶</span></div>'
+      + '<div style="max-width:520px">'+gauge(t.projectedHours, t.actualHours)+'</div>'
+      + '</div>';
+  }).join('');
+}
+
+function renderDashProyecto(){
+  const nav = state.dashNav;
+  const p = state.projects.find(x=>x.id===nav.projectId);
+  if(!p) return '<div class="card"><div class="empty">Proyecto no encontrado.</div></div>';
+  const t = projectTotals(p);
+  const sm = statusMeta(p.status);
+  const devCost = t.actualCost - t.projectedCost;
+  const periodo = p.startMonth ? fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : 'Sin período';
+  const montoLine = p.montoAdjudicacion!=null
+    ? '<span>Adjudicado: <b class="mono" style="color:var(--text)">'+fmtMoney(p.montoAdjudicacion)+'</b></span>'
+      + '<span>% consumido: <b class="mono" style="color:'+(p.montoAdjudicacion>0 && (t.actualCost/p.montoAdjudicacion)>1 ? 'var(--red)':'var(--text)')+'">'+(p.montoAdjudicacion>0? (t.actualCost/p.montoAdjudicacion*100).toFixed(0)+'%':'—')+'</b></span>'
+    : '';
+
+  let html = '<div class="card">'
+    + '<div class="card-title">'+p.name+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
+    + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+' · '+periodo+'</div>'
+    + '<div style="max-width:520px; margin-top:12px">'+gauge(t.projectedHours, t.actualHours)+'</div>'
+    + '<div style="display:flex; gap:22px; margin-top:12px; font-size:12.5px; flex-wrap:wrap" class="muted">'
+    + '<span>$ proyectado: <b class="mono" style="color:var(--text)">'+fmtMoney(t.projectedCost)+'</b></span>'
+    + '<span>$ real: <b class="mono" style="color:var(--text)">'+fmtMoney(t.actualCost)+'</b></span>'
+    + '<span>Desviación: <b class="mono" style="color:'+(devCost>0?'var(--red)':'var(--teal)')+'">'+(devCost>0?'+':'')+fmtMoney(devCost)+'</b></span>'
+    + montoLine
+    + '</div></div>';
+
+  const assignments = p.assignments||[];
+  if(assignments.length===0){
+    html += '<div class="card"><p class="muted" style="font-size:13px">Sin personas asignadas todavía.</p></div>';
+    return html;
+  }
+  const byRole = {};
+  assignments.forEach(a=>{
+    const person = getPerson(a.personId); if(!person) return;
+    const act = projectRealHoursForPerson(p.id, a.personId);
+    const proj = assignmentProjectedTotal(a);
+    if(!byRole[person.role]) byRole[person.role] = {projected:0, actual:0};
+    byRole[person.role].projected += proj; byRole[person.role].actual += act;
+  });
+  const roleRows = Object.entries(byRole).map(function(entry){
+    const role=entry[0], v=entry[1];
+    return '<div style="margin-bottom:10px"><div style="font-size:12.5px; font-weight:600; margin-bottom:4px">'+role+'</div>'+gauge(v.projected, v.actual)+'</div>';
+  }).join('');
+  const personRows = assignments.map(a=>{
+    const person = getPerson(a.personId); if(!person) return '';
+    const act = projectRealHoursForPerson(p.id, a.personId);
+    const proj = assignmentProjectedTotal(a);
+    return '<div class="person-row expand-toggle" onclick="dashGoto({unidad:\''+(state.dashNav.unidad||'')+'\',linea:\''+(state.dashNav.linea||'')+'\',projectId:\''+p.id+'\',personId:\''+person.id+'\'})">'
+      + '<div><div class="person-name">'+person.name+'</div><div class="person-role">'+person.role+'</div></div>'
+      + '<div class="muted mono" style="font-size:12.5px">'+fmtMoney(personRate(person))+'/h</div>'
+      + '<div>'+gauge(proj, act)+'</div><div class="link-btn">Ver ▶</div>'
+      + '</div>';
+  }).join('');
+  html += '<div class="card"><div class="section-label" style="margin-top:0">Consumo por rol</div>'+roleRows
+    + '<div class="section-label">Consumo por persona (clic para ver tendencia mensual)</div>'+personRows+'</div>';
+  return html;
+}
+
+function renderDashPersona(){
+  const nav = state.dashNav;
+  const p = state.projects.find(x=>x.id===nav.projectId);
+  const person = getPerson(nav.personId);
+  if(!p || !person) return '<div class="card"><div class="empty">No encontrado.</div></div>';
+  const a = (p.assignments||[]).find(x=>x.personId===person.id);
+  const proj = a ? assignmentProjectedTotal(a) : 0;
+  const act = projectRealHoursForPerson(p.id, person.id);
+  const months = monthRange(p.startMonth, p.endMonth);
+
+  const monthRows = months.map(m=>{
+    const pm = (a && a.projectedByMonth[m]) ? Number(a.projectedByMonth[m]) : 0;
+    const rm = state.realEntries.filter(e=>e.category==='project' && e.projectId===p.id && e.personId===person.id && e.month===m)
+      .reduce((s,e)=>s+Number(e.hours||0),0);
+    const pct = pm>0 ? (rm/pm*100) : (rm>0?999:0);
+    const color = ratioColor(pm>0? rm/pm : (rm>0?2:0));
+    return '<tr><td>'+fmtMonth(m)+'</td><td class="mono" style="text-align:right">'+fmtH(pm)+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(rm)+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+color+'">'+(pm>0?pct.toFixed(0)+'%':(rm>0?'—':'0%'))+'</td></tr>';
+  }).join('');
+
+  return '<div class="card">'
+    + '<div class="card-title">'+person.name+'</div>'
+    + '<div class="card-sub">'+person.role+' · '+(person.lineaNegocio||'Sin línea')+' · '+fmtMoney(personRate(person))+'/h</div>'
+    + '<div style="max-width:520px; margin-top:12px">'+gauge(proj, act)+'</div>'
+    + '</div>'
+    + '<div class="card"><div class="section-label" style="margin-top:0">Tendencia mensual en este proyecto</div>'
+    + (months.length ? '<table><thead><tr><th>Mes</th><th class="num">Proyectado</th><th class="num">Real</th><th class="num">%</th></tr></thead><tbody>'+monthRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">El proyecto no tiene período definido.</p>')
+    + '</div>';
+}
+// ---------- Proyectos ----------
+function renderProyectos(){
+  if(!state.projectSearchQuery) state.projectSearchQuery = '';
+  if(!state.projectStatusFilter) state.projectStatusFilter = 'all';
+  if(!state.projectTypeFilter) state.projectTypeFilter = 'all';
+  if(!state.projectLineaFilter) state.projectLineaFilter = 'all';
+
+  const statusOpts = '<option value="all">Todos los estados</option>'
+    + STATUS_OPTS.map(s => '<option value="'+s.v+'" '+(state.projectStatusFilter===s.v?'selected':'')+'>'+s.label+'</option>').join('');
+
+  const typeOpts = '<option value="all">Todos los tipos (Proyectos y Admin)</option>'
+    + '<option value="proyecto" '+(state.projectTypeFilter==='proyecto'?'selected':'')+'>📂 Proyectos cliente</option>'
+    + '<option value="admin" '+(state.projectTypeFilter==='admin'?'selected':'')+'>⚙️ Administración interna</option>';
+
+  const lineas = state.config.lineasNegocio || [];
+  const lineaOpts = '<option value="all">Todas las Líneas de Negocio</option>'
+    + lineas.map(l => '<option value="'+l.nombre+'" '+(state.projectLineaFilter===l.nombre?'selected':'')+'>🏷️ '+l.nombre+'</option>').join('');
+
+  let filtered = state.projects.filter(p => {
+    if(state.projectStatusFilter !== 'all' && p.status !== state.projectStatusFilter) return false;
+    if(state.projectTypeFilter !== 'all' && (p.tipo||'proyecto') !== state.projectTypeFilter) return false;
+    if(state.projectLineaFilter !== 'all' && (p.lineaNegocio||'') !== state.projectLineaFilter) return false;
+    if(state.projectSearchQuery){
+      const q = state.projectSearchQuery.toLowerCase();
+      const matchName = (p.name||'').toLowerCase().includes(q);
+      const matchPep = (p.pep||'').toLowerCase().includes(q);
+      const matchClient = (p.client||'').toLowerCase().includes(q);
+      const matchLinea = (p.lineaNegocio||'').toLowerCase().includes(q);
+      if(!matchName && !matchPep && !matchClient && !matchLinea) return false;
+    }
+    return true;
+  });
+
+  let html = '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; gap:10px; flex-wrap:wrap">'
+    + '<div style="display:flex; gap:8px; flex:1; max-width:840px; flex-wrap:wrap">'
+    + '<input type="text" placeholder="🔍 Buscar por nombre, cliente, PEP o línea..." value="'+(state.projectSearchQuery||'')+'" oninput="state.projectSearchQuery=this.value; renderContent()" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; flex:1; min-width:180px;">'
+    + '<select onchange="state.projectLineaFilter=this.value; renderContent()" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px;">'+lineaOpts+'</select>'
+    + '<select onchange="state.projectTypeFilter=this.value; renderContent()" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px;">'+typeOpts+'</select>'
+    + '<select onchange="state.projectStatusFilter=this.value; renderContent()" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px;">'+statusOpts+'</select>'
+    + '</div>'
+    + '<button class="btn btn-primary" onclick="openProjectModal()">+ Nuevo registro / proyecto</button>'
+    + '</div>';
+
+  if(filtered.length===0){
+    html += '<div class="card"><div class="empty"><div class="display">Sin registros que coincidan</div><p>Prueba ajustando los filtros de búsqueda o línea de negocio.</p></div></div>';
+    return html;
+  }
+
+  html += filtered.map(p=>{
+    const sm = statusMeta(p.status);
+    const isAdmin = p.tipo === 'admin';
+    const typeBadge = isAdmin
+      ? '<span class="chip" style="background:#FBF1DF; color:#DB9A2E; font-weight:700; margin-left:6px">⚙️ Administración</span>'
+      : '<span class="chip" style="background:#E6F5F2; color:#1E9E8B; font-weight:700; margin-left:6px">📂 Proyecto</span>';
+    const expanded = state.expandedProject==='mgmt_'+p.id;
+    const periodo = p.startMonth ? fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : 'Sin período definido';
+    const lineaText = p.lineaNegocio ? ' · LN: <b>'+p.lineaNegocio+'</b>' : ' · <span class="muted">Sin LN</span>';
+
+    return '<div class="card">'
+      + '<div class="card-header">'
+      + '<div><div class="card-title">'+p.name+typeBadge+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
+      + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+lineaText+' · '+periodo+'</div></div>'
+      + '<div style="display:flex; gap:6px; flex-wrap:wrap">'
+      + '<button class="btn btn-secondary btn-sm" onclick="toggleMgmt(\''+p.id+'\')">'+(expanded?'Cerrar':'Gestionar personas')+'</button>'
+      + '<button class="btn btn-secondary btn-sm" onclick="openProjectModal(\''+p.id+'\')">Editar</button>'
+      + '<button class="btn btn-ghost btn-sm" onclick="deleteProject(\''+p.id+'\')">Eliminar</button>'
+      + '</div></div>'
+      + (expanded ? renderPeopleManager(p) : '')
+      + '</div>';
+  }).join('');
+  return html;
+}
+
+function toggleMgmt(id){
+  const key = 'mgmt_'+id;
+  state.expandedProject = state.expandedProject===key ? null : key;
+  renderContent();
+}
+
+function renderPeopleManager(p){
+  const months = monthRange(p.startMonth, p.endMonth);
+  const rows = (p.assignments||[]).map(a=>{
+    const person = getPerson(a.personId);
+    if(!person) return '';
+    const proj = assignmentProjectedTotal(a);
+    const act = projectRealHoursForPerson(p.id, a.personId);
+    return '<tr>'
+      + '<td>'+person.name+'</td>'
+      + '<td>'+person.role+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtMoney(personRate(person))+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(proj)+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(act)+'</td>'
+      + '<td style="text-align:right">'
+      + '<button class="btn btn-ghost btn-sm" onclick="openProjectionModal(\''+p.id+'\',\''+a.personId+'\')">Proyección</button>'
+      + '<button class="btn btn-ghost btn-sm" onclick="removeAssignment(\''+p.id+'\',\''+a.personId+'\')">Quitar</button>'
+      + '</td></tr>';
+  }).join('');
+  const excelBlock = months.length
+    ? '<button class="btn btn-secondary btn-sm" onclick="downloadProjectionTemplate(\''+p.id+'\')">Descargar plantilla proyección</button>'
+      + '<label class="btn btn-secondary btn-sm" style="margin-bottom:0">Cargar proyección Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadProjectionExcel(event,\''+p.id+'\')"></label>'
+    : '<span class="muted" style="font-size:12px; align-self:center">Define mes inicio/término (botón Editar) para habilitar la carga de proyección.</span>';
+  return '<div class="section-label">Personas asignadas</div>'
+    + ((p.assignments||[]).length
+        ? '<table><thead><tr><th>Nombre</th><th>Rol</th><th class="num">Tarifa/h</th><th class="num">HH proyectadas</th><th class="num">HH reales</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
+        : '<p class="muted" style="font-size:13px; margin-bottom:8px">Sin personas aún.</p>')
+    + '<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">'
+    + excelBlock
+    + '</div>';
+}
+
+// ---------- Project modal ----------
+function openProjectModal(projectId){
+  const p = projectId ? state.projects.find(x=>x.id===projectId) : null;
+  const statusOptions = STATUS_OPTS.map(s=>'<option value="'+s.v+'" '+(p&&p.status===s.v?'selected':'')+'>'+s.label+'</option>').join('');
+  const fInicio = p ? (p.fechaInicio || (p.startMonth ? p.startMonth+'-01' : '')) : '';
+  const fCierre = p ? (p.fechaCierre || (p.endMonth ? p.endMonth+'-01' : '')) : '';
+  const pTipo = p ? (p.tipo || 'proyecto') : 'proyecto';
+  const pLinea = p ? (p.lineaNegocio || '') : '';
+
+  const lineaOpts = (state.config.lineasNegocio||[]).map(l =>
+    '<option value="'+l.nombre+'" '+(pLinea===l.nombre?'selected':'')+'>'+l.nombre+(l.unidad?' ('+l.unidad+')':'')+'</option>'
+  ).join('');
+
+  document.getElementById('modalBody').innerHTML =
+    '<h3>'+(p?'Editar registro':'Nuevo registro (Proyecto / Administración)')+'</h3>'
+    + '<div class="form-grid">'
+    + '<div class="field" style="grid-column:1/-1"><label>Nombre del registro / proyecto</label><input id="f_name" value="'+(p?p.name:'')+'" placeholder="Ej: Homologación Codelco / Administración RRHH"></div>'
+    + '<div class="field"><label>Tipo de registro</label><select id="f_tipo">'
+    + '<option value="proyecto" '+(pTipo==='proyecto'?'selected':'')+'>📂 Proyecto cliente</option>'
+    + '<option value="admin" '+(pTipo==='admin'?'selected':'')+'>⚙️ Administración interna</option>'
+    + '</select></div>'
+    + '<div class="field"><label>Línea de Negocio</label><select id="f_linea"><option value="">Sin línea de negocio</option>'+lineaOpts+'</select></div>'
+    + '<div class="field"><label>PEP (Código)</label><input id="f_pep" value="'+(p?(p.pep||''):'')+'" placeholder="Ej: 2332.N.F99"></div>'
+    + '<div class="field"><label>Cliente / Área</label><input id="f_client" value="'+(p?(p.client||''):'')+'" placeholder="Ej: Codelco / Interno"></div>'
+    + '<div class="field"><label>Estado</label><select id="f_status">'+statusOptions+'</select></div>'
+    + '<div class="field"><label>Fecha inicio</label><input id="f_start" type="date" value="'+fInicio+'"></div>'
+    + '<div class="field"><label>Fecha cierre</label><input id="f_end" type="date" value="'+fCierre+'"></div>'
+    + '</div>'
+    + '<p class="muted" style="font-size:12px; margin-top:8px">Asocia el registro a una Línea de Negocio y define si es Proyecto o Administración para el seguimiento de HH.</p>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveProject('+(p?"'"+p.id+"'":'null')+')">Guardar</button></div>';
+  openModal();
+}
+function saveProject(projectId){
+  const name = document.getElementById('f_name').value.trim();
+  const tipo = document.getElementById('f_tipo').value;
+  const lineaNegocio = document.getElementById('f_linea').value;
+  const pep = document.getElementById('f_pep').value.trim();
+  const client = document.getElementById('f_client').value.trim();
+  const status = document.getElementById('f_status').value;
+  const fechaInicio = document.getElementById('f_start').value;
+  const fechaCierre = document.getElementById('f_end').value;
+  const startMonth = fechaInicio ? fechaInicio.slice(0,7) : '';
+  const endMonth = fechaCierre ? fechaCierre.slice(0,7) : '';
+  if(!name){ showToast('Ingresa un nombre.'); return; }
+  if(fechaInicio && fechaCierre && fechaInicio>fechaCierre){ showToast('La fecha de inicio debe ser anterior o igual a la de cierre.'); return; }
+  if(projectId){
+    const p = state.projects.find(x=>x.id===projectId);
+    p.name=name; p.tipo=tipo; p.lineaNegocio=lineaNegocio; p.pep=pep; p.client=client; p.status=status;
+    p.fechaInicio=fechaInicio; p.fechaCierre=fechaCierre; p.startMonth=startMonth; p.endMonth=endMonth;
+  }else{
+    state.projects.push({id:uid('proj'), name, tipo, lineaNegocio, pep, client, status, fechaInicio, fechaCierre, startMonth, endMonth, assignments:[]});
+  }
+  persistProjects(); closeModal(); renderAll(); showToast(tipo==='admin' ? 'PEP de Administración guardado.' : 'Proyecto guardado.');
+}
+function deleteProject(id){
+  if(!confirm('¿Eliminar este proyecto y todos sus registros de horas asociados? Esta acción no se puede deshacer.')) return;
+  state.projects = state.projects.filter(p=>p.id!==id);
+  state.realEntries = state.realEntries.filter(e=>e.projectId!==id);
+  persistProjects(); persistEntries();
+  renderAll(); showToast('Proyecto eliminado.');
+}
+
+// ---------- Asignaciones (solo vía Excel de proyección, o quitar manualmente) ----------
+function removeAssignment(projectId, personId){
+  if(!confirm('¿Quitar a esta persona del proyecto?')) return;
+  const p = state.projects.find(x=>x.id===projectId);
+  p.assignments = p.assignments.filter(a=>a.personId!==personId);
+  persistProjects(); renderAll(); showToast('Persona quitada del proyecto.');
+}
+
+function openProjectionModal(projectId, personId){
+  const p = state.projects.find(x=>x.id===projectId);
+  const a = p.assignments.find(x=>x.personId===personId);
+  const person = getPerson(personId);
+  const months = monthRange(p.startMonth, p.endMonth);
+  if(months.length===0){
+    document.getElementById('modalBody').innerHTML =
+      '<h3>Proyección — '+person.name+'</h3><p class="muted" style="font-size:13px">Define el mes de inicio y término del proyecto (botón Editar) para poder distribuir la proyección mes a mes.</p>'
+      + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cerrar</button></div>';
+    openModal(); return;
+  }
+  const rows = months.map(m=>
+    '<div class="field" style="display:flex; align-items:center; gap:10px; margin-bottom:8px">'
+    + '<label style="min-width:90px; margin-bottom:0">'+fmtMonth(m)+'</label>'
+    + '<input type="number" min="0" step="0.5" data-month="'+m+'" class="proj-month-input" value="'+(a.projectedByMonth[m]||'')+'" style="max-width:120px"></div>'
+  ).join('');
+  const total = months.reduce((s,m)=>s+Number(a.projectedByMonth[m]||0),0);
+  document.getElementById('modalBody').innerHTML =
+    '<h3>Proyección mensual — '+person.name+'</h3>'
+    + '<div style="max-height:340px; overflow-y:auto; padding-right:6px">'+rows+'</div>'
+    + '<p class="muted mono" style="font-size:12.5px; margin-top:10px">Total: '+fmtH(total)+' h</p>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveProjection(\''+projectId+'\',\''+personId+'\')">Guardar</button></div>';
+  openModal();
+}
+function saveProjection(projectId, personId){
+  const p = state.projects.find(x=>x.id===projectId);
+  const a = p.assignments.find(x=>x.personId===personId);
+  document.querySelectorAll('.proj-month-input').forEach(inp=>{
+    const m = inp.dataset.month; const v = Number(inp.value)||0;
+    if(v>0) a.projectedByMonth[m]=v; else delete a.projectedByMonth[m];
+  });
+  persistProjects(); closeModal(); renderAll(); showToast('Proyección guardada.');
+}
+
+function downloadProjectionTemplate(projectId){
+  const p = state.projects.find(x=>x.id===projectId);
+  const months = monthRange(p.startMonth, p.endMonth);
+  if(months.length===0){ showToast('Define mes inicio/término primero.'); return; }
+  if(state.people.length===0){ showToast('Agrega personas en Configuración → Equipo antes de descargar la plantilla.'); return; }
+  const monthHeaders = months.map(monthLabelFull);
+  const header = ['Línea de Negocio','Persona'].concat(monthHeaders);
+  const rows = state.people.map(person=>{
+    const a = (p.assignments||[]).find(x=>x.personId===person.id);
+    const row = [person.lineaNegocio||'', person.name];
+    months.forEach(m=> row.push((a && a.projectedByMonth[m]) ? a.projectedByMonth[m] : ''));
+    return row;
+  });
+  const ws = XLSX.utils.aoa_to_sheet([header].concat(rows));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Proyeccion');
+  XLSX.writeFile(wb, 'proyeccion_'+p.name.replace(/[^a-z0-9]+/gi,'_')+'.xlsx');
+}
+function showUnmatchedModal(matched, unmatched){
+  document.getElementById('modalBody').innerHTML =
+    '<h3>Carga procesada</h3>'
+    + '<p style="font-size:13.5px; margin-bottom:10px">'+matched+' registro(s) actualizados correctamente.</p>'
+    + '<p style="font-size:13.5px; margin-bottom:6px"><b>'+unmatched.length+' fila(s) no se pudieron asociar:</b></p>'
+    + '<ul style="font-size:12.5px; color:var(--muted); max-height:200px; overflow-y:auto; padding-left:18px">'+unmatched.map(u=>'<li>'+u+'</li>').join('')+'</ul>'
+    + '<p class="muted" style="font-size:12px; margin-top:10px">Revisa que los nombres coincidan exactamente con los registrados en Configuración → Equipo.</p>'
+    + '<div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">Entendido</button></div>';
+  openModal();
+}
+
+function uploadProjectionExcel(evt, projectId){
+  const file = evt.target.files[0]; if(!file) return;
+  const p = state.projects.find(x=>x.id===projectId);
+  const months = monthRange(p.startMonth, p.endMonth);
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      if(rows.length===0){ showToast('El archivo no tiene filas con datos.'); evt.target.value=''; return; }
+      // Detecta qué columnas del archivo corresponden a qué mes, leyendo el encabezado en cualquier formato/capitalización
+      const headerCols = Object.keys(rows[0]);
+      const monthHeaderMap = {}; // texto real de la columna -> 'YYYY-MM'
+      headerCols.forEach(h=>{
+        const parsed = parseMonthLabel(h);
+        if(parsed && months.includes(parsed)) monthHeaderMap[h] = parsed;
+      });
+      if(Object.keys(monthHeaderMap).length===0){
+        showToast('No reconocí ninguna columna de mes en el archivo. Usa el formato "Marzo 2026" (mes + año).');
+        evt.target.value=''; return;
+      }
+      let matched=0; const unmatched=[];
+      rows.forEach(row=>{
+        const name = String(row['Persona']||'').trim();
+        if(!name) return;
+        const person = state.people.find(x=>x.name.trim().toLowerCase()===name.toLowerCase());
+        if(!person){ unmatched.push(name); return; }
+        let a = p.assignments.find(x=>x.personId===person.id);
+        if(!a){ a = {personId:person.id, projectedByMonth:{}}; p.assignments.push(a); }
+        Object.keys(monthHeaderMap).forEach(h=>{
+          if(row[h]!==''){ a.projectedByMonth[monthHeaderMap[h]] = Number(row[h])||0; }
+        });
+        matched++;
+      });
+      persistProjects(); renderAll();
+      if(unmatched.length) showUnmatchedModal(matched, unmatched.map(n=>n+' (persona no encontrada en Equipo)'));
+      else showToast('Proyección cargada: '+matched+' persona(s) actualizadas.');
+    }catch(err){ showToast('No se pudo leer el archivo. Verifica el formato.'); }
+    evt.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ---------- Cargar Horas ----------
+function renderCargar(){
+  if(state.people.length===0){
+    return '<div class="card"><div class="empty"><div class="display">Primero registra a tu equipo</div>'
+      + '<p>Ve a Configuración → Equipo y agrega a las personas antes de cargar horas.</p>'
+      + '<div style="margin-top:12px"><button class="btn btn-primary" onclick="switchMainView(\'config\')">Ir a Configuración</button></div></div></div>';
+  }
+  const filterOpts = '<option value="all">Todos los meses</option>' + lastMonthsDesc(12).map(m=>'<option value="'+m+'" '+(state.entryFilterMonth===m?'selected':'')+'>'+fmtMonth(m)+'</option>').join('');
+
+  const entries = state.realEntries
+    .filter(e => state.entryFilterMonth==='all' || e.month===state.entryFilterMonth)
+    .sort((a,b)=> b.month.localeCompare(a.month) || b.createdAt-a.createdAt)
+    .slice(0,80);
+
+  const rows = entries.map(e=>{
+    const person = getPerson(e.personId);
+    const proj = e.projectId ? state.projects.find(p=>p.id===e.projectId) : null;
+    const projLabel = e.category==='admin' ? '<span class="chip">Administración</span>' : (proj?proj.name:'<span class="muted">Proyecto eliminado</span>');
+    return '<tr>'
+      + '<td>'+fmtMonth(e.month)+'</td>'
+      + '<td>'+projLabel+'</td>'
+      + '<td>'+(person?person.name:'<span class="muted">—</span>')+'</td>'
+      + '<td>'+(person?person.role:'—')+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(e.hours)+'</td>'
+      + '<td class="muted" style="font-size:12.5px">'+(e.note||'')+'</td>'
+      + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteEntry(\''+e.id+'\')">Eliminar</button></td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card">'
+    + '<div class="card-title" style="margin-bottom:6px">Carga de planilla de horas (formato de la empresa)</div>'
+    + '<p class="muted" style="font-size:12px; margin-bottom:14px">Sube el archivo tal como lo genera el sistema actual: una hoja por persona, con bloques semanales y horas por día. El mes se detecta automáticamente por las fechas del archivo. Las horas se <b>suman</b> a lo que ya exista — puedes subir varios archivos (ej. uno por unidad) sin perder lo cargado antes. Los proyectos se identifican por su código PEP inicial (ej. "2332.N.F99"); asegúrate de que cada proyecto tenga ese mismo código en su ficha.</p>'
+    + '<div class="form-grid">'
+    + '<div class="field" style="grid-column:1/-1"><label>Archivo Excel</label><input type="file" id="bulk_file" accept=".xlsx,.xls"></div>'
+    + '</div>'
+    + '<div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="uploadTimesheetExcel()">Cargar archivo</button></div>'
+    + '</div>'
+    + '<div class="card">'
+    + '<div class="filter-bar"><div class="card-title" style="margin-right:auto">Registros recientes</div>'
+    + '<select id="entryFilter" onchange="state.entryFilterMonth=this.value; renderContent();" style="padding:7px 10px; border:1px solid var(--border); border-radius:7px">'+filterOpts+'</select></div>'
+    + (entries.length
+        ? '<table><thead><tr><th>Mes</th><th>Proyecto</th><th>Persona</th><th>Rol</th><th class="num">Horas</th><th>Nota</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
+        : '<p class="muted" style="font-size:13px">Sin registros todavía.</p>')
+    + '</div>';
+}
+
+function deleteEntry(id){
+  if(!confirm('¿Eliminar este registro de horas?')) return;
+  state.realEntries = state.realEntries.filter(e=>e.id!==id);
+  persistEntries(); renderKPIs(); renderContent();
+  showToast('Registro eliminado.');
+}
+
+function extractPepCode(label){
+  if(!label) return null;
+  const str = String(label).trim();
+  const m1 = str.match(/\b(\d{3,5}(?:\.[A-Za-z0-9]+)+)\b/i);
+  if(m1) return m1[1].toUpperCase();
+  const m2 = str.match(/\b(PEP[-_\s]?[A-Za-z0-9\.-]+)\b/i);
+  if(m2) return m2[1].toUpperCase();
+  const firstWord = str.split(/\s+/)[0].toUpperCase();
+  return firstWord || null;
+}
+
+function findMatchingProject(label){
+  if(!label) return null;
+  const rawLabel = String(label).trim();
+  const normLabel = normalizeStr(rawLabel);
+  const codeInLabel = extractPepCode(rawLabel);
+
+  // 1. Coincidencia por código PEP extraído (ej: 3981.N.F99)
+  if(codeInLabel){
+    const projByCode = state.projects.find(pr => {
+      const prCode = extractPepCode(pr.pep || pr.name);
+      return prCode && prCode === codeInLabel;
+    });
+    if(projByCode) return projByCode;
+  }
+
+  // 2. Coincidencia por inclusión de texto del PEP (ej: si uno incluye al otro)
+  const projByContain = state.projects.find(pr => {
+    if(!pr.pep) return false;
+    const prPepNorm = normalizeStr(pr.pep);
+    return prPepNorm && (normLabel.includes(prPepNorm) || prPepNorm.includes(normLabel));
+  });
+  if(projByContain) return projByContain;
+
+  // 3. Coincidencia por nombre de proyecto
+  const projByName = state.projects.find(pr => {
+    if(!pr.name) return false;
+    const prNameNorm = normalizeStr(pr.name);
+    return prNameNorm && (normLabel.includes(prNameNorm) || prNameNorm.includes(normLabel));
+  });
+
+  return projByName || null;
+}
+
+function isAdminLabel(label){
+  return normalizeStr(label).indexOf('administra') !== -1;
+}
+function namesMatch(a, b){
+  const norm = s => normalizeStr(s).replace(/,/g,' ').split(/\s+/).filter(Boolean);
+  const wa = norm(a), wb = norm(b);
+  if(wa.length===0 || wb.length===0) return false;
+  const setB = new Set(wb);
+  let shared = 0;
+  wa.forEach(w=>{ if(setB.has(w)) shared++; });
+  return shared >= Math.min(2, Math.min(wa.length, wb.length));
+}
+function addRealEntryHours(category, projectId, personId, month, hours){
+  let entry = state.realEntries.find(e=> e.category===category && e.personId===personId && e.month===month && (category==='admin' || e.projectId===projectId));
+  if(entry){ entry.hours = Number(entry.hours) + hours; entry.source = 'excel'; }
+  else{ state.realEntries.push({id:uid('ent'), category, projectId, personId, month, hours, note:'', source:'excel', loggedBy:'', createdAt:Date.now()}); }
+}
+
+function uploadTimesheetExcel(){
+  const fileInput = document.getElementById('bulk_file');
+  const file = fileInput.files[0];
+  if(!file){ showToast('Selecciona un archivo.'); return; }
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array', cellDates:true});
+      const parsed = {}; // { nombreHoja: { etiquetaProyecto: { 'YYYY-MM': horas } } }
+
+      wb.SheetNames.forEach(sheetName=>{
+        const ws = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
+        const headerRowIdx = rows.findIndex(r => String(r[0]||'').trim().toLowerCase()==='proyecto');
+        if(headerRowIdx===-1) return; // no tiene el patrón esperado (probablemente hoja índice/leyenda)
+        const headerRow = rows[headerRowIdx];
+        const dateCols = [];
+        headerRow.forEach((cell, idx)=>{
+          if(cell instanceof Date && !isNaN(cell.getTime())) dateCols.push({idx, month: cell.toISOString().slice(0,7)});
+        });
+        if(dateCols.length===0) return; // sin fechas reales = hoja índice/leyenda, se ignora
+
+        const projectsMap = {};
+        for(let i=headerRowIdx+1; i<rows.length; i++){
+          const row = rows[i];
+          const label = String(row[0]||'').trim();
+          if(!label) break; // fila en blanco = llegamos a la fila de totales
+          dateCols.forEach(dc=>{
+            const hours = Number(row[dc.idx]);
+            if(!isNaN(hours) && hours>0){
+              if(!projectsMap[label]) projectsMap[label] = {};
+              projectsMap[label][dc.month] = (projectsMap[label][dc.month]||0) + hours;
+            }
+          });
+        }
+        if(Object.keys(projectsMap).length) parsed[sheetName.trim()] = projectsMap;
+      });
+
+      if(Object.keys(parsed).length===0){
+        showToast('No se encontraron hojas con horas cargadas en el archivo.');
+        fileInput.value=''; return;
+      }
+
+      let matchedCount=0, adminCount=0;
+      const unmatchedPeople=[], unmatchedProjects=[];
+
+      Object.entries(parsed).forEach(([sheetPersonName, projectsMap])=>{
+        const person = state.people.find(p=>namesMatch(sheetPersonName, p.name));
+        if(!person){ unmatchedPeople.push(sheetPersonName); return; }
+        Object.entries(projectsMap).forEach(([label, monthsObj])=>{
+          const project = findMatchingProject(label);
+          const code = extractPepCode(label) || label;
+          Object.entries(monthsObj).forEach(([month, hours])=>{
+            if(project){
+              const cat = (project.tipo === 'admin') ? 'admin' : 'project';
+              addRealEntryHours(cat, project.id, person.id, month, hours);
+              if(cat==='admin') adminCount++; else matchedCount++;
+            }else{
+              unmatchedProjects.push(sheetPersonName+' — '+label+' ('+(code||'sin PEP')+') — '+fmtMonth(month)+': '+fmtH(hours)+' h');
+            }
+          });
+        });
+      });
+
+      persistEntries(); renderKPIs(); renderContent();
+      if(unmatchedPeople.length || unmatchedProjects.length){
+        showUnmatchedTimesheetModal(matchedCount, adminCount, unmatchedPeople, unmatchedProjects);
+      }else{
+        showToast('Carga completa: '+matchedCount+' registro(s) sumados a proyectos, '+adminCount+' a administración.');
+      }
+      fileInput.value='';
+    }catch(err){
+      console.error(err);
+      showToast('No se pudo leer el archivo. Verifica que sea el formato de planilla esperado.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showUnmatchedTimesheetModal(matchedCount, adminCount, unmatchedPeople, unmatchedProjects){
+  let html = '<h3>Carga procesada</h3>'
+    + '<p style="font-size:13.5px; margin-bottom:10px">'+matchedCount+' registro(s) sumados a proyectos, '+adminCount+' a administración.</p>';
+  if(unmatchedPeople.length){
+    html += '<p style="font-size:13.5px; margin-bottom:6px"><b>'+unmatchedPeople.length+' hoja(s) con persona no encontrada en Equipo:</b></p>'
+      + '<ul style="font-size:12.5px; color:var(--muted); max-height:140px; overflow-y:auto; padding-left:18px">'+unmatchedPeople.map(n=>'<li>'+n+'</li>').join('')+'</ul>';
+  }
+  if(unmatchedProjects.length){
+    html += '<p style="font-size:13.5px; margin:10px 0 6px"><b>'+unmatchedProjects.length+' fila(s) con código de proyecto no encontrado (y que no parecen ser administración):</b></p>'
+      + '<ul style="font-size:12.5px; color:var(--muted); max-height:160px; overflow-y:auto; padding-left:18px">'+unmatchedProjects.map(n=>'<li>'+n+'</li>').join('')+'</ul>';
+  }
+  html += '<p class="muted" style="font-size:12px; margin-top:10px">Revisa que el nombre de la hoja coincida con el nombre registrado en Configuración → Equipo, y que el código PEP del proyecto esté cargado igual en su ficha.</p>'
+    + '<div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">Entendido</button></div>';
+  document.getElementById('modalBody').innerHTML = html;
+  openModal();
+}
+
+// ---------- Configuración ----------
+function renderConfig(){
+  const cfg = state.config;
+
+  const unidadRows = (cfg.unidades||[]).map(u=>
+    '<tr><td>'+u+'</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteUnidad(\''+u+'\')">Eliminar</button></td></tr>'
+  ).join('');
+
+  const lineaRows = (cfg.lineasNegocio||[]).map(l=>
+    '<tr><td>'+l.nombre+'</td><td>'+(l.unidad||'<span class="muted">Sin unidad</span>')+'</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="openLineaModal(\''+l.nombre+'\')">Editar</button><button class="btn btn-ghost btn-sm" onclick="deleteLineaNegocio(\''+l.nombre+'\')">Eliminar</button></td></tr>'
+  ).join('');
+
+  const peopleRows = state.people.map(p=>
+    '<tr><td><b>'+p.name+'</b></td><td>'+(p.lineaNegocio||'<span class="muted">Sin línea</span>')+'</td><td>'+p.role+'</td>'
+    + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="openPersonModalGlobal(\''+p.id+'\')">Editar</button><button class="btn btn-ghost btn-sm" onclick="deleteGlobalPerson(\''+p.id+'\')">Eliminar</button></td></tr>'
+  ).join('');
+
+  const backupCard = '<div class="card" style="border:1px solid #DCE1F0; background:#F8F9FD;">'
+    + '<div class="card-header"><div class="card-title">💾 Respaldos de Datos (Backup & Restore)</div></div>'
+    + '<p class="muted" style="font-size:12.5px; margin-bottom:12px">Puedes descargar una copia de seguridad en formato JSON con todo el portafolio (proyectos, equipo, configuración y registros reales) o restaurarla en cualquier momento.</p>'
+    + '<div style="display:flex; gap:10px; flex-wrap:wrap;">'
+    + '<button class="btn btn-secondary btn-sm" onclick="downloadJSONBackup()">📥 Descargar Respaldo JSON</button>'
+    + '<label class="btn btn-secondary btn-sm" style="margin-bottom:0; cursor:pointer;">📤 Cargar Respaldo JSON<input type="file" accept=".json" style="display:none" onchange="uploadJSONBackup(event)"></label>'
+    + '</div></div>';
+
+  return backupCard
+    + '<div class="card"><div class="card-header"><div class="card-title">Unidades de Negocio</div><button class="btn btn-secondary btn-sm" onclick="openUnidadModal()">+ Agregar unidad</button></div>'
+    + ((cfg.unidades||[]).length ? '<table><thead><tr><th>Nombre</th><th></th></tr></thead><tbody>'+unidadRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin unidades configuradas (ej: CircularHR, Expande).</p>')
+    + '</div>'
+    + '<div class="card"><div class="card-header"><div class="card-title">Líneas de Negocio</div><button class="btn btn-secondary btn-sm" onclick="openLineaModal()">+ Agregar línea</button></div>'
+    + ((cfg.lineasNegocio||[]).length ? '<table><thead><tr><th>Nombre</th><th>Unidad</th><th></th></tr></thead><tbody>'+lineaRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin líneas de negocio configuradas.</p>')
+    + '<p class="muted" style="font-size:12px; margin-top:10px">Cada línea de negocio pertenece a una unidad. Crea primero las unidades.</p></div>'
+    + '<div class="card"><div class="card-header"><div><div class="card-title">Equipo</div></div><button class="btn btn-secondary btn-sm" onclick="openPersonModalGlobal()">+ Agregar persona</button></div>'
+    + (state.people.length ? '<table><thead><tr><th>Nombre</th><th>Línea de Negocio</th><th>Rol</th><th></th></tr></thead><tbody>'+peopleRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin personas registradas. Agrégalas para poder asignarlas a proyectos.</p>')
+    + '</div>';
+}
+
+function openUnidadModal(){
+  document.getElementById('modalBody').innerHTML = '<h3>Nueva unidad</h3>'
+    + '<div class="form-grid"><div class="field" style="grid-column:1/-1"><label>Nombre</label><input id="f_unidadname" placeholder="Ej: CircularHR"></div></div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveUnidad()">Guardar</button></div>';
+  openModal();
+}
+function saveUnidad(){
+  const name = document.getElementById('f_unidadname').value.trim();
+  if(!name){ showToast('Ingresa un nombre.'); return; }
+  if(!state.config.unidades) state.config.unidades=[];
+  if(!state.config.unidades.includes(name)) state.config.unidades.push(name);
+  persistConfig(); closeModal(); renderAll(); showToast('Unidad agregada.');
+}
+function deleteUnidad(name){
+  if(!confirm('¿Eliminar esta unidad? Las líneas de negocio que la tengan asignada quedarán sin unidad.')) return;
+  state.config.unidades = (state.config.unidades||[]).filter(u=>u!==name);
+  (state.config.lineasNegocio||[]).forEach(l=>{ if(l.unidad===name) l.unidad=''; });
+  persistConfig(); renderAll();
+}
+
+function openLineaModal(lineaNombre){
+  const existing = lineaNombre ? (state.config.lineasNegocio||[]).find(l=>l.nombre===lineaNombre) : null;
+  const unidadOpts = (state.config.unidades||[]).map(u=>'<option value="'+u+'" '+(existing&&existing.unidad===u?'selected':'')+'>'+u+'</option>').join('');
+  document.getElementById('modalBody').innerHTML = '<h3>'+(existing?'Editar línea de negocio':'Nueva línea de negocio')+'</h3>'
+    + '<div class="form-grid">'
+    + '<div class="field" style="grid-column:1/-1"><label>Nombre</label><input id="f_lineaname" value="'+(existing?existing.nombre:'')+'" '+(existing?'disabled':'')+' placeholder="Ej: Consultoría RRHH"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Unidad</label><select id="f_lineaunidad"><option value="">Sin unidad</option>'+unidadOpts+'</select></div>'
+    + '</div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveLineaNegocio('+(existing?"'"+existing.nombre+"'":'null')+')">Guardar</button></div>';
+  openModal();
+}
+function saveLineaNegocio(existingNombre){
+  const name = document.getElementById('f_lineaname').value.trim();
+  const unidad = document.getElementById('f_lineaunidad').value;
+  if(!name){ showToast('Ingresa un nombre.'); return; }
+  if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
+  if(existingNombre){
+    const l = state.config.lineasNegocio.find(x=>x.nombre===existingNombre);
+    if(l) l.unidad = unidad;
+  }else{
+    if(!state.config.lineasNegocio.some(x=>x.nombre===name)) state.config.lineasNegocio.push({nombre:name, unidad});
+  }
+  persistConfig(); closeModal(); renderAll(); showToast('Línea de negocio guardada.');
+}
+function deleteLineaNegocio(name){
+  if(!confirm('¿Eliminar esta línea de negocio del catálogo? Las personas que ya la tengan asignada no se modifican, solo dejará de sugerirse para nuevas personas.')) return;
+  state.config.lineasNegocio = (state.config.lineasNegocio||[]).filter(l=>l.nombre!==name);
+  persistConfig(); renderAll();
+}
+
+function openRoleModal(existingRole){
+  const rate = existingRole ? state.config.roleRates[existingRole] : '';
+  document.getElementById('modalBody').innerHTML =
+    '<h3>'+(existingRole?'Editar rol':'Nuevo rol')+'</h3>'
+    + '<div class="form-grid">'
+    + '<div class="field"><label>Nombre del rol</label><input id="f_rolename" value="'+(existingRole||'')+'" '+(existingRole?'disabled':'')+' placeholder="Ej: Consultor Senior"></div>'
+    + '<div class="field"><label>Tarifa por hora (CLP)</label><input id="f_rolerate" type="number" min="0" value="'+(rate!==undefined?rate:'')+'"></div>'
+    + '</div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveRole(\''+(existingRole||'')+'\')">Guardar</button></div>';
+  openModal();
+}
+function saveRole(oldName){
+  const name = document.getElementById('f_rolename').value.trim();
+  const rate = Number(document.getElementById('f_rolerate').value)||0;
+  if(!name){ showToast('Ingresa un nombre de rol.'); return; }
+  if(oldName && oldName!==name) delete state.config.roleRates[oldName];
+  state.config.roleRates[name] = rate;
+  persistConfig(); closeModal(); renderAll(); showToast('Rol guardado.');
+}
+function deleteRole(role){
+  if(!confirm('¿Eliminar este rol del catálogo? Las personas con este rol quedarán sin tarifa por defecto.')) return;
+  delete state.config.roleRates[role];
+  persistConfig(); renderAll();
+}
+function saveCapacityConfig(){
+  state.config.monthlyCapacity = Number(document.getElementById('cfg_capacity').value)||180;
+  state.config.targetProjectPct = Number(document.getElementById('cfg_targetProject').value)||80;
+  state.config.targetAdminPct = Number(document.getElementById('cfg_targetAdmin').value)||20;
+  persistConfig(); showToast('Parámetros guardados.'); renderAll();
+}
+
+function openPersonModalGlobal(personId){
+  const p = personId ? getPerson(personId) : null;
+  const lineaOpts = (state.config.lineasNegocio||[]).map(l=>'<option value="'+l.nombre+'">').join('');
+  document.getElementById('modalBody').innerHTML =
+    '<h3>'+(p?'Editar persona':'Nueva persona')+'</h3>'
+    + '<div class="form-grid">'
+    + '<div class="field" style="grid-column:1/-1"><label>Nombre completo</label><input id="f_gname" value="'+(p?p.name:'')+'" placeholder="Ej: María Pérez"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Línea de Negocio</label><input id="f_glinea" list="lineaNegocioList" value="'+(p?(p.lineaNegocio||''):'')+'" placeholder="Selecciona o escribe una línea"><datalist id="lineaNegocioList">'+lineaOpts+'</datalist></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Rol</label><input id="f_grole" value="'+(p?p.role:'')+'" placeholder="Ej: Consultor / Jefe de Proyecto / Especialista"></div>'
+    + '</div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveGlobalPerson('+(p?"'"+p.id+"'":'null')+')">Guardar</button></div>';
+  openModal();
+}
+function saveGlobalPerson(personId){
+  const name = document.getElementById('f_gname').value.trim();
+  const lineaNegocio = document.getElementById('f_glinea').value.trim();
+  const role = document.getElementById('f_grole').value.trim();
+  if(!name || !role){ showToast('Completa nombre y rol.'); return; }
+  if(lineaNegocio){
+    if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
+    if(!state.config.lineasNegocio.some(x=>x.nombre===lineaNegocio)) state.config.lineasNegocio.push({nombre:lineaNegocio, unidad:''});
+  }
+  if(personId){
+    const p = getPerson(personId);
+    p.name=name; p.lineaNegocio=lineaNegocio; p.role=role;
+  }else{
+    state.people.push({id:uid('pers'), name, lineaNegocio, role});
+  }
+  persistPeople(); persistConfig(); closeModal(); renderAll(); showToast('Persona guardada.');
+}
+function deleteGlobalPerson(id){
+  if(!confirm('¿Eliminar esta persona? Se quitará de todos los proyectos donde esté asignada, junto con sus registros de horas.')) return;
+  state.people = state.people.filter(p=>p.id!==id);
+  state.projects.forEach(pr=>{ pr.assignments = (pr.assignments||[]).filter(a=>a.personId!==id); });
+  state.realEntries = state.realEntries.filter(e=>e.personId!==id);
+  persistPeople(); persistProjects(); persistEntries(); renderAll();
+  showToast('Persona eliminada.');
+}
+
+// ---------- Modal generic ----------
+function openModal(){ document.getElementById('modalOverlay').classList.add('open'); }
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+document.getElementById('modalOverlay').addEventListener('click', function(e){ if(e.target.id==='modalOverlay') closeModal(); });
+
+// ---------- Init ----------
+renderTopButtons();
+initFirestoreSync();
+</script>
+</body>
+</html>
