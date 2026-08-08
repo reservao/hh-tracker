@@ -752,22 +752,149 @@ function renderDashboardCharts(){
     });
   }
 
-  // 2. Gráfico 50% Izquierda: Unidad de Negocio
-  const ctxUnidades = document.getElementById('chartUnidadesProyVsReal');
-  if(ctxUnidades){
-    if(activeCharts.unidadesChart){ activeCharts.unidadesChart.destroy(); activeCharts.unidadesChart=null; }
+  // 1b. Gráfico Mensual Solo Proyectos Cliente
+  const ctxMonthProj = document.getElementById('chartMensualProyectos');
+  if(ctxMonthProj){
+    if(activeCharts.monthlyProyectosChart){ activeCharts.monthlyProyectosChart.destroy(); activeCharts.monthlyProyectosChart=null; }
 
-    const unidades = state.config.unidades || [];
-    const labelsU = [];
-    const projU = [];
-    const actU = [];
+    const labelsM = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const projP = Array(12).fill(0);
+    const actP = Array(12).fill(0);
 
-    unidades.forEach(u => {
-      labelsU.push(u);
-      const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
-      let pH = 0, aH = 0;
+    state.projects.forEach(p => {
+      if(p.tipo !== 'admin'){
+        (p.assignments||[]).forEach(a => {
+          Object.entries(a.projectedByMonth||{}).forEach(([monthKey, hours]) => {
+            if(isMonthInFilter(monthKey)){
+              const mNum = parseInt(monthKey.slice(5, 7), 10);
+              if(mNum >= 1 && mNum <= 12) projP[mNum - 1] += Number(hours||0);
+            }
+          });
+        });
+      }
+    });
 
-      state.projects.forEach(p => {
+    state.realEntries.forEach(e => {
+      if(e.month && isMonthInFilter(e.month) && e.category !== 'admin'){
+        const proj = state.projects.find(p => p.id === e.projectId);
+        if(!proj || proj.tipo !== 'admin'){
+          const mNum = parseInt(e.month.slice(5, 7), 10);
+          if(mNum >= 1 && mNum <= 12) actP[mNum - 1] += Number(e.hours||0);
+        }
+      }
+    });
+
+    activeCharts.monthlyProyectosChart = new Chart(ctxMonthProj, {
+      type: 'bar',
+      data: {
+        labels: labelsM,
+        datasets: [
+          { label: 'HH Proyectadas', data: projP, backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 45 },
+          { label: 'HH Reales (Ejecutadas)', data: actP, backgroundColor: '#1E9E8B', borderRadius: 4, maxBarThickness: 45 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+        },
+        scales: { y: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+      }
+    });
+  }
+
+  // 1c. Gráfico Mensual Solo Administración Interna
+  const ctxMonthAdmin = document.getElementById('chartMensualAdmin');
+  if(ctxMonthAdmin){
+    if(activeCharts.monthlyAdminChart){ activeCharts.monthlyAdminChart.destroy(); activeCharts.monthlyAdminChart=null; }
+
+    const labelsM = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const projA = Array(12).fill(0);
+    const actA = Array(12).fill(0);
+
+    state.projects.forEach(p => {
+      if(p.tipo === 'admin'){
+        (p.assignments||[]).forEach(a => {
+          Object.entries(a.projectedByMonth||{}).forEach(([monthKey, hours]) => {
+            if(isMonthInFilter(monthKey)){
+              const mNum = parseInt(monthKey.slice(5, 7), 10);
+              if(mNum >= 1 && mNum <= 12) projA[mNum - 1] += Number(hours||0);
+            }
+          });
+        });
+      }
+    });
+
+    state.realEntries.forEach(e => {
+      if(e.month && isMonthInFilter(e.month)){
+        let isAdmin = e.category === 'admin';
+        if(!isAdmin && e.projectId){
+          const proj = state.projects.find(p => p.id === e.projectId);
+          if(proj && proj.tipo === 'admin') isAdmin = true;
+        }
+        if(isAdmin){
+          const mNum = parseInt(e.month.slice(5, 7), 10);
+          if(mNum >= 1 && mNum <= 12) actA[mNum - 1] += Number(e.hours||0);
+        }
+      }
+    });
+
+    activeCharts.monthlyAdminChart = new Chart(ctxMonthAdmin, {
+      type: 'bar',
+      data: {
+        labels: labelsM,
+        datasets: [
+          { label: 'HH Proyectadas', data: projA, backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 45 },
+          { label: 'HH Reales (Ejecutadas)', data: actA, backgroundColor: '#DB9A2E', borderRadius: 4, maxBarThickness: 45 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+        },
+        scales: { y: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+      }
+    });
+  }
+
+  // 2a. Unidad de Negocio: Consolidado
+  createUnidadChart('chartUnidadesConsolidado', 'unidadesConsolidadoChart', 'all');
+  // 2b. Unidad de Negocio: Solo Proyectos Cliente
+  createUnidadChart('chartUnidadesProyectos', 'unidadesProyectosChart', 'proyectos');
+  // 2c. Unidad de Negocio: Solo Administración Interna
+  createUnidadChart('chartUnidadesAdmin', 'unidadesAdminChart', 'admin');
+
+  // 3a. Línea de Negocio: Consolidado
+  createLineaChart('chartLineasConsolidado', 'lineasConsolidadoChart', 'all');
+  // 3b. Línea de Negocio: Solo Proyectos Cliente
+  createLineaChart('chartLineasProyectos', 'lineasProyectosChart', 'proyectos');
+  // 3c. Línea de Negocio: Solo Administración Interna
+  createLineaChart('chartLineasAdmin', 'lineasAdminChart', 'admin');
+}
+
+function createUnidadChart(canvasId, chartKey, filterType){
+  const ctx = document.getElementById(canvasId);
+  if(!ctx) return;
+  if(activeCharts[chartKey]){ activeCharts[chartKey].destroy(); activeCharts[chartKey]=null; }
+
+  const unidades = state.config.unidades || [];
+  const labelsU = [];
+  const projU = [];
+  const actU = [];
+
+  unidades.forEach(u => {
+    labelsU.push(u);
+    const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
+    let pH = 0, aH = 0;
+
+    state.projects.forEach(p => {
+      const matchProj = (filterType === 'all') || (filterType === 'proyectos' && p.tipo !== 'admin') || (filterType === 'admin' && p.tipo === 'admin');
+      if(matchProj){
         (p.assignments||[]).forEach(a => {
           if(personIds.has(a.personId)){
             Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
@@ -775,56 +902,69 @@ function renderDashboardCharts(){
             });
           }
         });
-      });
-
-      state.realEntries.forEach(e => {
-        if(isMonthInFilter(e.month) && personIds.has(e.personId)){
-          aH += Number(e.hours||0);
-        }
-      });
-
-      projU.push(pH);
-      actU.push(aH);
-    });
-
-    activeCharts.unidadesChart = new Chart(ctxUnidades, {
-      type: 'bar',
-      data: {
-        labels: labelsU.length ? labelsU : ['Sin unidades'],
-        datasets: [
-          { label: 'HH Proyectadas', data: projU.length ? projU : [0], backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 35 },
-          { label: 'HH Reales (Ejecutadas)', data: actU.length ? actU : [0], backgroundColor: '#1E9E8B', borderRadius: 4, maxBarThickness: 35 }
-        ]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
-        },
-        scales: { x: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
       }
     });
-  }
 
-  // 3. Gráfico 50% Derecha: Línea de Negocio
-  const ctxLineas = document.getElementById('chartLineasProyVsReal');
-  if(ctxLineas){
-    if(activeCharts.lineasChart){ activeCharts.lineasChart.destroy(); activeCharts.lineasChart=null; }
+    state.realEntries.forEach(e => {
+      if(isMonthInFilter(e.month) && personIds.has(e.personId)){
+        let isAdmin = e.category === 'admin';
+        if(!isAdmin && e.projectId){
+          const proj = state.projects.find(p => p.id === e.projectId);
+          if(proj && proj.tipo === 'admin') isAdmin = true;
+        }
+        const matchEntry = (filterType === 'all') || (filterType === 'proyectos' && !isAdmin) || (filterType === 'admin' && isAdmin);
+        if(matchEntry){
+          aH += Number(e.hours||0);
+        }
+      }
+    });
 
-    const lineas = state.config.lineasNegocio || [];
-    const labelsL = [];
-    const projL = [];
-    const actL = [];
+    projU.push(pH);
+    actU.push(aH);
+  });
 
-    lineas.forEach(l => {
-      labelsL.push(l.nombre);
-      const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
-      let pH = 0, aH = 0;
+  const realColor = (filterType === 'admin') ? '#DB9A2E' : '#1E9E8B';
 
-      state.projects.forEach(p => {
+  activeCharts[chartKey] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labelsU.length ? labelsU : ['Sin unidades'],
+      datasets: [
+        { label: 'HH Proyectadas', data: projU.length ? projU : [0], backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 35 },
+        { label: 'HH Reales (Ejecutadas)', data: actU.length ? actU : [0], backgroundColor: realColor, borderRadius: 4, maxBarThickness: 35 }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+      },
+      scales: { x: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+    }
+  });
+}
+
+function createLineaChart(canvasId, chartKey, filterType){
+  const ctx = document.getElementById(canvasId);
+  if(!ctx) return;
+  if(activeCharts[chartKey]){ activeCharts[chartKey].destroy(); activeCharts[chartKey]=null; }
+
+  const lineas = state.config.lineasNegocio || [];
+  const labelsL = [];
+  const projL = [];
+  const actL = [];
+
+  lineas.forEach(l => {
+    labelsL.push(l.nombre);
+    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
+    let pH = 0, aH = 0;
+
+    state.projects.forEach(p => {
+      const matchProj = (filterType === 'all') || (filterType === 'proyectos' && p.tipo !== 'admin') || (filterType === 'admin' && p.tipo === 'admin');
+      if(matchProj){
         (p.assignments||[]).forEach(a => {
           if(personIds.has(a.personId)){
             Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
@@ -832,64 +972,137 @@ function renderDashboardCharts(){
             });
           }
         });
-      });
-
-      state.realEntries.forEach(e => {
-        if(isMonthInFilter(e.month) && personIds.has(e.personId)){
-          aH += Number(e.hours||0);
-        }
-      });
-
-      projL.push(pH);
-      actL.push(aH);
-    });
-
-    activeCharts.lineasChart = new Chart(ctxLineas, {
-      type: 'bar',
-      data: {
-        labels: labelsL.length ? labelsL : ['Sin líneas'],
-        datasets: [
-          { label: 'HH Proyectadas', data: projL.length ? projL : [0], backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 35 },
-          { label: 'HH Reales (Ejecutadas)', data: actL.length ? actL : [0], backgroundColor: '#1E9E8B', borderRadius: 4, maxBarThickness: 35 }
-        ]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
-        },
-        scales: { x: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
       }
     });
-  }
+
+    state.realEntries.forEach(e => {
+      if(isMonthInFilter(e.month) && personIds.has(e.personId)){
+        let isAdmin = e.category === 'admin';
+        if(!isAdmin && e.projectId){
+          const proj = state.projects.find(p => p.id === e.projectId);
+          if(proj && proj.tipo === 'admin') isAdmin = true;
+        }
+        const matchEntry = (filterType === 'all') || (filterType === 'proyectos' && !isAdmin) || (filterType === 'admin' && isAdmin);
+        if(matchEntry){
+          aH += Number(e.hours||0);
+        }
+      }
+    });
+
+    projL.push(pH);
+    actL.push(aH);
+  });
+
+  const realColor = (filterType === 'admin') ? '#DB9A2E' : '#1E9E8B';
+
+  activeCharts[chartKey] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labelsL.length ? labelsL : ['Sin líneas'],
+      datasets: [
+        { label: 'HH Proyectadas', data: projL.length ? projL : [0], backgroundColor: '#1E2A5E', borderRadius: 4, maxBarThickness: 35 },
+        { label: 'HH Reales (Ejecutadas)', data: actL.length ? actL : [0], backgroundColor: realColor, borderRadius: 4, maxBarThickness: 35 }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+      },
+      scales: { x: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+    }
+  });
 }
 
 function renderDashboardVisualsHeader(){
   return '<div class="card" style="margin-bottom:20px;">'
     + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
     + '<div>'
-    + '<div class="card-title" style="font-size:15px; font-weight:700">📊 Evolución Mensual de HH: Proyectado vs. Real</div>'
-    + '<div class="card-sub" style="font-size:12px">Comparativa de horas planificadas (barra azul) vs. horas reales ejecutadas (barra verde) por mes</div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📊 Evolución Mensual de HH: Total Consolidado (Proyectos + Administración)</div>'
+    + '<div class="card-sub" style="font-size:12px">Muestra la suma total de horas planificadas vs. reales ejecutadas en todo el portafolio (Proyectos de Clientes + Administración Interna)</div>'
     + '</div>'
     + '</div>'
     + '<div style="height:280px; position:relative"><canvas id="chartMensualProyVsReal"></canvas></div>'
     + '</div>'
 
-    + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:20px;">'
+    + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:24px;">'
     + '<div class="card" style="margin-bottom:0;">'
-    + '<div class="card-title" style="font-size:15px; font-weight:700">🏢 HH por Unidad de Negocio</div>'
-    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Proyectado (azul) vs. Real (verde) agrupado por Unidad</div>'
-    + '<div style="height:260px; position:relative"><canvas id="chartUnidadesProyVsReal"></canvas></div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📂 Evolución Mensual: Solo Proyectos Cliente</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra únicamente la evolución de horas planificadas (azul) vs. reales ejecutadas (verde) en Proyectos de Clientes</div>'
+    + '<div style="height:250px; position:relative"><canvas id="chartMensualProyectos"></canvas></div>'
     + '</div>'
 
     + '<div class="card" style="margin-bottom:0;">'
-    + '<div class="card-title" style="font-size:15px; font-weight:700">🏷️ HH por Línea de Negocio</div>'
-    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Proyectado (azul) vs. Real (verde) agrupado por Línea</div>'
-    + '<div style="height:260px; position:relative"><canvas id="chartLineasProyVsReal"></canvas></div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">⚙️ Evolución Mensual: Solo Administración Interna</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra únicamente la evolución de horas planificadas (azul) vs. reales ejecutadas (amarillo) en tareas de Administración Interna</div>'
+    + '<div style="height:250px; position:relative"><canvas id="chartMensualAdmin"></canvas></div>'
     + '</div>'
+    + '</div>'
+
+    // SEPARADOR 1: UNIDAD DE NEGOCIO
+    + '<div style="display:flex; align-items:center; margin: 32px 0 20px 0;">'
+    + '<div style="flex:1; border-top: 1px dashed var(--border);"></div>'
+    + '<span style="padding: 0 16px; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;">🏢 DESGLOSE POR UNIDAD DE NEGOCIO</span>'
+    + '<div style="flex:1; border-top: 1px dashed var(--border);"></div>'
+    + '</div>'
+
+    // BLOQUE UNIDAD DE NEGOCIO
+    + '<div class="card" style="margin-bottom:16px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">🏢 HH por Unidad de Negocio: Total Consolidado (Proyectos + Administración)</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra la suma consolidada de horas proyectadas vs. reales por Unidad de Negocio (incluye Proyectos y Administración)</div>'
+    + '<div style="height:260px; position:relative"><canvas id="chartUnidadesConsolidado"></canvas></div>'
+    + '</div>'
+
+    + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:24px;">'
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📂 HH por Unidad: Solo Proyectos Cliente</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra únicamente las horas de Proyectos de Clientes por Unidad de Negocio</div>'
+    + '<div style="height:240px; position:relative"><canvas id="chartUnidadesProyectos"></canvas></div>'
+    + '</div>'
+
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">⚙️ HH por Unidad: Solo Administración Interna</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra únicamente las horas de Administración Interna por Unidad de Negocio</div>'
+    + '<div style="height:240px; position:relative"><canvas id="chartUnidadesAdmin"></canvas></div>'
+    + '</div>'
+    + '</div>'
+
+    // SEPARADOR 2: LÍNEA DE NEGOCIO
+    + '<div style="display:flex; align-items:center; margin: 32px 0 20px 0;">'
+    + '<div style="flex:1; border-top: 1px dashed var(--border);"></div>'
+    + '<span style="padding: 0 16px; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;">🏷️ DESGLOSE POR LÍNEA DE NEGOCIO</span>'
+    + '<div style="flex:1; border-top: 1px dashed var(--border);"></div>'
+    + '</div>'
+
+    // BLOQUE LÍNEA DE NEGOCIO
+    + '<div class="card" style="margin-bottom:16px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">🏷️ HH por Línea de Negocio: Total Consolidado (Proyectos + Administración)</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra la suma consolidada de horas proyectadas vs. reales por Línea de Negocio (incluye Proyectos y Administración)</div>'
+    + '<div style="height:260px; position:relative"><canvas id="chartLineasConsolidado"></canvas></div>'
+    + '</div>'
+
+    + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:24px;">'
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📂 HH por Línea: Solo Proyectos Cliente</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra únicamente las horas de Proyectos de Clientes por Línea de Negocio</div>'
+    + '<div style="height:240px; position:relative"><canvas id="chartLineasProyectos"></canvas></div>'
+    + '</div>'
+
+    + '<div class="card" style="margin-bottom:0;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">⚙️ HH por Línea: Solo Administración Interna</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra únicamente las horas de Administración Interna por Línea de Negocio</div>'
+    + '<div style="height:240px; position:relative"><canvas id="chartLineasAdmin"></canvas></div>'
+    + '</div>'
+    + '</div>'
+
+    // SEPARADOR 3: TABLAS DE CUMPLIMIENTO
+    + '<div style="display:flex; align-items:center; margin: 32px 0 20px 0;">'
+    + '<div style="flex:1; border-top: 1px dashed var(--border);"></div>'
+    + '<span style="padding: 0 16px; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;">📋 MATRICES Y TABLAS DE CUMPLIMIENTO</span>'
+    + '<div style="flex:1; border-top: 1px dashed var(--border);"></div>'
     + '</div>';
 }
 
@@ -2197,17 +2410,37 @@ function downloadProjectionTemplate(projectId){
   const months = monthRange(p.startMonth, p.endMonth);
   if(months.length===0){ showToast('Define mes inicio/término primero.'); return; }
   if(state.people.length===0){ showToast('Agrega personas en Configuración → Equipo antes de descargar la plantilla.'); return; }
+  
+  // Hoja 1: Carga Proyección (ÚNICAMENTE personas de la Línea de Negocio del Proyecto)
+  const projectLinea = p.lineaNegocio || '';
+  const peopleInProjectLinea = projectLinea
+    ? state.people.filter(person => person.lineaNegocio === projectLinea)
+    : state.people;
+
   const monthHeaders = months.map(monthLabelFull);
-  const header = ['Línea de Negocio','Persona'].concat(monthHeaders);
-  const rows = state.people.map(person=>{
+  const headerProj = ['Línea de Negocio','Persona'].concat(monthHeaders);
+  const rowsProj = peopleInProjectLinea.map(person=>{
     const a = (p.assignments||[]).find(x=>x.personId===person.id);
     const row = [person.lineaNegocio||'', person.name];
     months.forEach(m=> row.push((a && a.projectedByMonth[m]) ? a.projectedByMonth[m] : ''));
     return row;
   });
-  const ws = XLSX.utils.aoa_to_sheet([header].concat(rows));
+  const wsProj = XLSX.utils.aoa_to_sheet([headerProj].concat(rowsProj));
+
+  // Hoja 2: Todas las Personas (Catálogo completo de referencia)
+  const headerCat = ['Nombre Completo', 'Línea de Negocio', 'Unidad de Negocio', 'Rol', 'Tarifa HH (CLP)'];
+  const rowsCat = state.people.map(person => [
+    person.name,
+    person.lineaNegocio || 'Sin línea',
+    getUnidadForLinea(person.lineaNegocio) || 'Sin unidad',
+    person.role,
+    personRate(person)
+  ]);
+  const wsCat = XLSX.utils.aoa_to_sheet([headerCat].concat(rowsCat));
+
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Proyeccion');
+  XLSX.utils.book_append_sheet(wb, wsProj, 'Carga Proyección');
+  XLSX.utils.book_append_sheet(wb, wsCat, 'Todas las Personas');
   XLSX.writeFile(wb, 'proyeccion_'+p.name.replace(/[^a-z0-9]+/gi,'_')+'.xlsx');
 }
 function showUnmatchedModal(matched, unmatched){
@@ -2229,9 +2462,16 @@ function uploadProjectionExcel(evt, projectId){
   reader.onload = function(e){
     try{
       const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
+      // Busca la hoja de carga ('Carga Proyección', 'Proyeccion' o la primera hoja)
+      const targetSheetName = wb.SheetNames.find(n => {
+        const norm = normalizeStr(n);
+        return norm.includes('carga') || norm.includes('proyeccion');
+      }) || wb.SheetNames[0];
+
+      const ws = wb.Sheets[targetSheetName];
       const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-      if(rows.length===0){ showToast('El archivo no tiene filas con datos.'); evt.target.value=''; return; }
+      if(rows.length===0){ showToast('La hoja de proyección no tiene filas con datos.'); evt.target.value=''; return; }
+
       // Detecta qué columnas del archivo corresponden a qué mes, leyendo el encabezado en cualquier formato/capitalización
       const headerCols = Object.keys(rows[0]);
       const monthHeaderMap = {}; // texto real de la columna -> 'YYYY-MM'
@@ -2245,9 +2485,9 @@ function uploadProjectionExcel(evt, projectId){
       }
       let matched=0; const unmatched=[];
       rows.forEach(row=>{
-        const name = String(row['Persona']||'').trim();
+        const name = String(row['Persona']||row['Nombre Completo']||'').trim();
         if(!name) return;
-        const person = state.people.find(x=>x.name.trim().toLowerCase()===name.toLowerCase());
+        const person = state.people.find(x=>namesMatch(name, x.name));
         if(!person){ unmatched.push(name); return; }
         let a = p.assignments.find(x=>x.personId===person.id);
         if(!a){ a = {personId:person.id, projectedByMonth:{}}; p.assignments.push(a); }
@@ -2365,19 +2605,82 @@ function findMatchingProject(label){
 function isAdminLabel(label){
   return normalizeStr(label).indexOf('administra') !== -1;
 }
+function cleanNameWords(str){
+  if(!str) return [];
+  const stopWords = new Set(['de', 'del', 'la', 'las', 'los', 'san', 'santa', 'y', 'e', 'von', 'van']);
+  const sanitized = normalizeStr(str)
+    .replace(/[.,;:_\-\/\\()[\]"'\`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return sanitized
+    .split(/\s+/)
+    .filter(w => w.length > 0 && !stopWords.has(w) && !/^[a-z]\.?$/.test(w));
+}
 function namesMatch(a, b){
-  const norm = s => normalizeStr(s).replace(/,/g,' ').split(/\s+/).filter(Boolean);
-  const wa = norm(a), wb = norm(b);
-  if(wa.length===0 || wb.length===0) return false;
-  const setB = new Set(wb);
-  let shared = 0;
-  wa.forEach(w=>{ if(setB.has(w)) shared++; });
-  return shared >= Math.min(2, Math.min(wa.length, wb.length));
+  if(!a || !b) return false;
+  const cleanA = cleanNameWords(a).join(' ');
+  const cleanB = cleanNameWords(b).join(' ');
+  if(!cleanA || !cleanB) return false;
+  if(cleanA === cleanB) return true;
+  if(cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
+
+  const wordsA = cleanNameWords(a);
+  const wordsB = cleanNameWords(b);
+
+  const setB = new Set(wordsB);
+  const setA = new Set(wordsA);
+  let sharedInA = 0;
+  wordsA.forEach(w => { if(setB.has(w)) sharedInA++; });
+
+  let sharedInB = 0;
+  wordsB.forEach(w => { if(setA.has(w)) sharedInB++; });
+
+  const minWords = Math.min(wordsA.length, wordsB.length);
+  if(sharedInA >= minWords || sharedInB >= minWords) return true;
+  if(sharedInA >= 2 || sharedInB >= 2) return true;
+
+  return false;
 }
 function addRealEntryHours(category, projectId, personId, month, hours){
-  let entry = state.realEntries.find(e=> e.category===category && e.personId===personId && e.month===month && (category==='admin' || e.projectId===projectId));
-  if(entry){ entry.hours = Number(entry.hours) + hours; entry.source = 'excel'; }
-  else{ state.realEntries.push({id:uid('ent'), category, projectId, personId, month, hours, note:'', source:'excel', loggedBy:'', createdAt:Date.now()}); }
+  let entry = state.realEntries.find(e =>
+    e.category === category &&
+    e.personId === personId &&
+    e.month === month &&
+    (category === 'admin' ? e.projectId === projectId : e.projectId === projectId)
+  );
+  if(entry){
+    // PEP ya existía para esta persona y mes: SE REEMPLAZAN / ACTUALIZAN las horas
+    entry.hours = Number(hours);
+    entry.source = 'excel';
+  } else {
+    // PEP nuevo para esta persona y mes: SE AGREGA
+    state.realEntries.push({id:uid('ent'), category, projectId, personId, month, hours:Number(hours), note:'', source:'excel', loggedBy:'', createdAt:Date.now()});
+  }
+}
+
+function parseMonthFromCell(cell){
+  if(cell == null || cell === '') return null;
+  if(cell instanceof Date && !isNaN(cell.getTime())){
+    return cell.toISOString().slice(0, 7);
+  }
+  const num = Number(cell);
+  if(!isNaN(num) && num > 35000 && num < 70000){
+    const utcDays = Math.floor(num - 25569);
+    const dateObj = new Date(utcDays * 86400 * 1000);
+    if(!isNaN(dateObj.getTime())){
+      return dateObj.toISOString().slice(0, 7);
+    }
+  }
+  if(typeof cell === 'string'){
+    const str = cell.trim();
+    const parsedLabel = parseMonthLabel(str);
+    if(parsedLabel) return parsedLabel;
+    const d = new Date(str);
+    if(!isNaN(d.getTime()) && d.getFullYear() > 2000 && d.getFullYear() < 2100){
+      return d.toISOString().slice(0, 7);
+    }
+  }
+  return null;
 }
 
 function uploadTimesheetExcel(){
@@ -2393,23 +2696,31 @@ function uploadTimesheetExcel(){
       wb.SheetNames.forEach(sheetName=>{
         const ws = wb.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
-        const headerRowIdx = rows.findIndex(r => String(r[0]||'').trim().toLowerCase()==='proyecto');
-        if(headerRowIdx===-1) return; // no tiene el patrón esperado (probablemente hoja índice/leyenda)
+        const headerRowIdx = rows.findIndex(r => {
+          const v = String(r[0]||'').trim().toLowerCase();
+          return v === 'proyecto' || v.startsWith('proyecto') || v === 'pep';
+        });
+        if(headerRowIdx===-1) return;
+
         const headerRow = rows[headerRowIdx];
         const dateCols = [];
         headerRow.forEach((cell, idx)=>{
-          if(cell instanceof Date && !isNaN(cell.getTime())) dateCols.push({idx, month: cell.toISOString().slice(0,7)});
+          if(idx === 0 || idx === 1) return;
+          const monthStr = parseMonthFromCell(cell);
+          if(monthStr){
+            dateCols.push({idx, month: monthStr});
+          }
         });
-        if(dateCols.length===0) return; // sin fechas reales = hoja índice/leyenda, se ignora
+        if(dateCols.length===0) return;
 
         const projectsMap = {};
         for(let i=headerRowIdx+1; i<rows.length; i++){
           const row = rows[i];
           const label = String(row[0]||'').trim();
-          if(!label) break; // fila en blanco = llegamos a la fila de totales
+          if(!label || label.toLowerCase() === 'total' || label.toLowerCase() === 't') continue;
           dateCols.forEach(dc=>{
             const hours = Number(row[dc.idx]);
-            if(!isNaN(hours) && hours>0){
+            if(!isNaN(hours) && hours>=0){
               if(!projectsMap[label]) projectsMap[label] = {};
               projectsMap[label][dc.month] = (projectsMap[label][dc.month]||0) + hours;
             }
@@ -2422,6 +2733,20 @@ function uploadTimesheetExcel(){
         showToast('No se encontraron hojas con horas cargadas en el archivo.');
         fileInput.value=''; return;
       }
+
+      // Limpia adecuadamente los registros de Excel anteriores para las personas y meses del archivo
+      Object.entries(parsed).forEach(([sheetPersonName, projectsMap])=>{
+        const person = state.people.find(p=>namesMatch(sheetPersonName, p.name));
+        if(!person) return;
+        const monthsInSheet = new Set();
+        Object.values(projectsMap).forEach(monthsObj=>{
+          Object.keys(monthsObj).forEach(m=> monthsInSheet.add(m));
+        });
+        state.realEntries = state.realEntries.filter(entry=>{
+          if(entry.personId === person.id && monthsInSheet.has(entry.month) && entry.source === 'excel') return false;
+          return true;
+        });
+      });
 
       let matchedCount=0, adminCount=0;
       const unmatchedPeople=[], unmatchedProjects=[];
