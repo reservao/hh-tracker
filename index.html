@@ -646,6 +646,90 @@ function getAvailableYears(){
 function initDashFilters(){
   if(!Array.isArray(state.dashYearsFilter)) state.dashYearsFilter = [String(new Date().getFullYear())];
   if(!Array.isArray(state.dashMonthsFilter)) state.dashMonthsFilter = [];
+  initEntityFilters();
+}
+
+function initEntityFilters(){
+  if(!state.dashFilterUnidad) state.dashFilterUnidad = 'all';
+  if(!state.dashFilterLinea) state.dashFilterLinea = 'all';
+  if(!state.dashFilterProyecto) state.dashFilterProyecto = 'all';
+}
+
+function setDashEntityFilter(type, value){
+  initEntityFilters();
+  if(type === 'unidad') {
+    state.dashFilterUnidad = value;
+    if(value !== 'all' && state.dashFilterLinea !== 'all'){
+      const lineasInU = new Set(lineasDeUnidad(value));
+      if(!lineasInU.has(state.dashFilterLinea)) state.dashFilterLinea = 'all';
+    }
+  } else if(type === 'linea') {
+    state.dashFilterLinea = value;
+    if(value !== 'all'){
+      const obj = (state.config.lineasNegocio||[]).find(l => l.nombre === value);
+      if(obj && obj.unidad) state.dashFilterUnidad = obj.unidad;
+    }
+  } else if(type === 'proyecto') {
+    state.dashFilterProyecto = value;
+    if(value !== 'all'){
+      const proj = state.projects.find(p => p.id === value);
+      if(proj && proj.lineaNegocio) {
+        state.dashFilterLinea = proj.lineaNegocio;
+        const obj = (state.config.lineasNegocio||[]).find(l => l.nombre === proj.lineaNegocio);
+        if(obj && obj.unidad) state.dashFilterUnidad = obj.unidad;
+      }
+    }
+  }
+  renderAll();
+}
+
+function resetDashEntityFilters(){
+  state.dashFilterUnidad = 'all';
+  state.dashFilterLinea = 'all';
+  state.dashFilterProyecto = 'all';
+  renderAll();
+}
+
+function isProjectInEntityFilter(p){
+  initEntityFilters();
+  if(!p) return true;
+
+  if(state.dashFilterProyecto !== 'all' && p.id !== state.dashFilterProyecto) return false;
+  if(state.dashFilterLinea !== 'all' && (p.lineaNegocio || '') !== state.dashFilterLinea) return false;
+
+  if(state.dashFilterUnidad !== 'all'){
+    const unidadPeople = new Set(peopleInUnidad(state.dashFilterUnidad).map(x=>x.id));
+    const hasAssignedInUnidad = (p.assignments||[]).some(a => unidadPeople.has(a.personId));
+    const lineasInU = new Set(lineasDeUnidad(state.dashFilterUnidad));
+    const isLineInUnidad = p.lineaNegocio && lineasInU.has(p.lineaNegocio);
+    if(!hasAssignedInUnidad && !isLineInUnidad) return false;
+  }
+
+  return true;
+}
+
+function isPersonInEntityFilter(person){
+  initEntityFilters();
+  if(!person) return true;
+
+  if(state.dashFilterUnidad !== 'all'){
+    const unidadPeople = new Set(peopleInUnidad(state.dashFilterUnidad).map(x=>x.id));
+    if(!unidadPeople.has(person.id)) return false;
+  }
+
+  if(state.dashFilterLinea !== 'all'){
+    if((person.lineaNegocio || '') !== state.dashFilterLinea) return false;
+  }
+
+  if(state.dashFilterProyecto !== 'all'){
+    const proj = state.projects.find(x => x.id === state.dashFilterProyecto);
+    if(proj){
+      const assignedIds = new Set((proj.assignments||[]).map(a => a.personId));
+      if(!assignedIds.has(person.id)) return false;
+    }
+  }
+
+  return true;
 }
 
 function isMonthInFilter(monthStr){
@@ -723,10 +807,30 @@ function renderDashTimeFilterPanel(){
     periodText += ' · Meses: ' + monthNames.join(', ');
   }
 
-  return '<div style="background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:18px; box-shadow:var(--card-shadow);">'
+  // Dropdown options
+  const unidades = state.config.unidades || [];
+  const lineas = state.config.lineasNegocio || [];
+  const projects = state.projects || [];
+
+  const uOpts = '<option value="all">🏢 Todas las Unidades</option>'
+    + unidades.map(u => '<option value="'+u+'" '+(state.dashFilterUnidad===u?'selected':'')+'>🏢 '+u+'</option>').join('');
+
+  let filteredLineas = lineas;
+  if(state.dashFilterUnidad !== 'all') filteredLineas = lineas.filter(l => l.unidad === state.dashFilterUnidad);
+  const lOpts = '<option value="all">🏷️ Todas las Líneas</option>'
+    + filteredLineas.map(l => '<option value="'+l.nombre+'" '+(state.dashFilterLinea===l.nombre?'selected':'')+'>🏷️ '+l.nombre+(l.unidad?' ('+l.unidad+')':'')+'</option>').join('');
+
+  let filteredProjects = projects;
+  if(state.dashFilterLinea !== 'all') filteredProjects = projects.filter(p => p.lineaNegocio === state.dashFilterLinea);
+  const pOpts = '<option value="all">📊 Todos los Proyectos</option>'
+    + filteredProjects.map(p => '<option value="'+p.id+'" '+(state.dashFilterProyecto===p.id?'selected':'')+'>' + (p.tipo==='admin'?'⚙️ ':'📂 ') + p.name + '</option>').join('');
+
+  const hasEntityFilter = state.dashFilterUnidad !== 'all' || state.dashFilterLinea !== 'all' || state.dashFilterProyecto !== 'all';
+
+  return '<div style="background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:18px; box-shadow:var(--card-shadow);">'
     + '<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">'
     + '<div style="display:flex; align-items:center; gap:8px;">'
-    + '<span style="font-size:13px; font-weight:700; color:var(--text)">📅 Filtro Temporal (Multiselección)</span>'
+    + '<span style="font-size:13px; font-weight:700; color:var(--text)">📅 Filtros de Dashboard (Tiempo y Estructura)</span>'
     + '<span class="chip" style="background:var(--bg); color:var(--muted); font-size:11.5px; font-weight:600;">' + periodText + '</span>'
     + '</div>'
     + '</div>'
@@ -734,18 +838,29 @@ function renderDashTimeFilterPanel(){
     + '<span style="font-size:12px; font-weight:600; color:var(--muted); min-width:55px;">Año(s):</span>'
     + '<div style="display:flex; gap:5px; flex-wrap:wrap;">' + yearPills + '</div>'
     + '</div>'
-    + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+    + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">'
     + '<span style="font-size:12px; font-weight:600; color:var(--muted); min-width:55px;">Mes(es):</span>'
     + '<div style="display:flex; gap:5px; flex-wrap:wrap;">' + monthPills + '</div>'
+    + '</div>'
+    + '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:10px; border-top:1px dashed var(--border);">'
+    + '<span style="font-size:12px; font-weight:700; color:var(--text); min-width:130px;">🎯 Filtrar Vista por:</span>'
+    + '<div style="display:flex; gap:8px; flex-wrap:wrap; flex:1; align-items:center;">'
+    + '<select style="padding:6px 10px; font-size:12px; border-radius:6px; border:1px solid var(--border); background:var(--surface);" onchange="setDashEntityFilter(\'unidad\', this.value)">' + uOpts + '</select>'
+    + '<select style="padding:6px 10px; font-size:12px; border-radius:6px; border:1px solid var(--border); background:var(--surface);" onchange="setDashEntityFilter(\'linea\', this.value)">' + lOpts + '</select>'
+    + '<select style="padding:6px 10px; font-size:12.5px; border-radius:6px; border:1px solid var(--border); background:var(--surface); max-width:280px;" onchange="setDashEntityFilter(\'proyecto\', this.value)">' + pOpts + '</select>'
+    + (hasEntityFilter ? '<button class="btn btn-secondary btn-sm" style="padding:4px 8px; font-size:11.5px" onclick="resetDashEntityFilters()">🧹 Limpiar Filtros</button>' : '')
+    + '</div>'
     + '</div>'
     + '</div>';
 }
 
 function getFilteredTotals(){
+  initEntityFilters();
   let projClient = 0, actClient = 0;
   let projAdmin = 0, actAdmin = 0;
 
   state.projects.forEach(p => {
+    if(!isProjectInEntityFilter(p)) return;
     const isAdmin = p.tipo === 'admin';
     (p.assignments||[]).forEach(a => {
       Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
@@ -760,10 +875,11 @@ function getFilteredTotals(){
   state.realEntries.forEach(e => {
     if(isMonthInFilter(e.month)){
       const hours = Number(e.hours||0);
+      const proj = state.projects.find(p => p.id === e.projectId);
+      if(proj && !isProjectInEntityFilter(proj)) return;
       if(e.category === 'admin') {
         actAdmin += hours;
       } else {
-        const proj = state.projects.find(p => p.id === e.projectId);
         if(proj && proj.tipo === 'admin') actAdmin += hours;
         else actClient += hours;
       }
@@ -776,16 +892,17 @@ function getFilteredTotals(){
 function renderDashModeSelector(){
   const mode = state.dashMode || 'global';
   return '<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; background:var(--surface); padding:10px 14px; border-radius:10px; border:1px solid var(--border); box-shadow:var(--card-shadow);">'
-
     + '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">'
     + '<span style="font-size:12.5px; font-weight:700; color:var(--muted); margin-right:4px">Perspectiva:</span>'
     + '<button class="tab-btn '+(mode==='global'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'global\')">🌐 Resumen Global</button>'
-    + '<button class="tab-btn '+(mode==='hierarchy'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'hierarchy\')">🏢 Jerarquía (Drilldown)</button>'
-    + '<button class="tab-btn '+(mode==='unidades'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'unidades\')">📁 Todas las Unidades</button>'
-    + '<button class="tab-btn '+(mode==='lineas'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'lineas\')">🏷️ Todas las Líneas</button>'
-    + '<button class="tab-btn '+(mode==='proyectos'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'proyectos\')">📊 Todos los Proyectos</button>'
     + '<button class="tab-btn '+(mode==='personas'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'personas\')">👥 Todo el Equipo</button>'
     + '</div>'
+    + '<div style="display:flex; gap:8px; align-items:center;" class="no-print">'
+    + '<button class="btn btn-secondary btn-sm" onclick="exportFullReportExcel()">📥 Exportar Excel</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Imprimir PDF</button>'
+    + '</div>'
+    + '</div>';
+}
     + '<div style="display:flex; gap:8px; align-items:center;" class="no-print">'
     + '<button class="btn btn-secondary btn-sm" onclick="exportFullReportExcel()">📥 Exportar Excel</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Imprimir PDF</button>'
@@ -1355,10 +1472,11 @@ function renderDashAllProjects(){
 
 function renderDashAllPeople(){
   let html = '<div class="section-label">Todo el Equipo (Resumen Transversal)</div>';
-  if(state.people.length===0){
-    return html + '<div class="card"><div class="empty"><div class="display">Sin integrantes en el equipo</div></div></div>';
+  const filteredPeople = state.people.filter(p => isPersonInEntityFilter(p));
+  if(filteredPeople.length === 0){
+    return html + '<div class="card"><div class="empty"><div class="display">No hay integrantes que coincidan con el filtro seleccionado</div></div></div>';
   }
-  const rows = state.people.map(p=>{
+  const rows = filteredPeople.map(p => {
     let totalProj = 0, totalAct = 0;
     state.projects.forEach(pr=>{
       (pr.assignments||[]).forEach(a=>{
@@ -1403,9 +1521,12 @@ function renderDashUnidadesComplianceTable(){
     return { num: String(idx + 1).padStart(2, '0'), name: m };
   });
 
-  const unidades = state.config.unidades || [];
+  const unidades = (state.config.unidades || []).filter(u => {
+    if(state.dashFilterUnidad !== 'all' && u !== state.dashFilterUnidad) return false;
+    return true;
+  });
   if(unidades.length === 0){
-    return '<div class="card"><div class="empty"><div class="display">Sin Unidades de Negocio configuradas</div></div></div>';
+    return '<div class="card"><div class="empty"><div class="display">Sin Unidades de Negocio configuradas o coincidentes con el filtro</div></div></div>';
   }
 
   let headCols = monthsFull.map(m => '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center">' + m.name + '</th>').join('');
@@ -1497,9 +1618,13 @@ function renderDashLineasComplianceTable(){
     return { num: String(idx + 1).padStart(2, '0'), name: m };
   });
 
-  const lineas = state.config.lineasNegocio || [];
+  const lineas = (state.config.lineasNegocio || []).filter(l => {
+    if(state.dashFilterUnidad !== 'all' && l.unidad !== state.dashFilterUnidad) return false;
+    if(state.dashFilterLinea !== 'all' && l.nombre !== state.dashFilterLinea) return false;
+    return true;
+  });
   if(lineas.length === 0){
-    return '<div class="card"><div class="empty"><div class="display">Sin Líneas de Negocio configuradas</div></div></div>';
+    return '<div class="card"><div class="empty"><div class="display">Sin Líneas de Negocio configuradas o coincidentes con el filtro</div></div></div>';
   }
 
   let headCols = monthsFull.map(m => '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center">' + m.name + '</th>').join('');
@@ -1516,6 +1641,7 @@ function renderDashLineasComplianceTable(){
 
       let projM = 0, actM = 0;
       state.projects.forEach(p => {
+        if(!isProjectInEntityFilter(p)) return;
         (p.assignments||[]).forEach(a => {
           if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]){
             projM += Number(a.projectedByMonth[monthKey] || 0);
@@ -1525,6 +1651,8 @@ function renderDashLineasComplianceTable(){
 
       state.realEntries.forEach(e => {
         if(isMonthInFilter(e.month) && e.month === monthKey && personIds.has(e.personId)){
+          const proj = state.projects.find(p => p.id === e.projectId);
+          if(proj && !isProjectInEntityFilter(proj)) return;
           actM += Number(e.hours || 0);
         }
       });
@@ -1594,14 +1722,15 @@ function renderDashProjectComplianceTable(){
     return { num: String(idx + 1).padStart(2, '0'), name: m };
   });
 
-  if(state.projects.length === 0){
-    return '<div class="card"><div class="empty"><div class="display">Sin proyectos para mostrar</div></div></div>';
+  const filteredProjects = state.projects.filter(p => isProjectInEntityFilter(p));
+  if(filteredProjects.length === 0){
+    return '<div class="card"><div class="empty"><div class="display">No hay proyectos que coincidan con el filtro seleccionado</div></div></div>';
   }
 
   let headCols = monthsFull.map(m => '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center">' + m.name + '</th>').join('');
   headCols += '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center; background:var(--surface)">Total %</th>';
 
-  const rows = state.projects.map(p => {
+  const rows = filteredProjects.map(p => {
     const lineaText = p.lineaNegocio
       ? '<span style="display:inline-block; font-size:11px; padding:1px 6px; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--muted); font-weight:600;">🏷️ ' + p.lineaNegocio + '</span>'
       : '<span style="display:inline-block; font-size:11px; padding:1px 6px; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--muted);">🏷️ Sin LN</span>';
@@ -2165,20 +2294,8 @@ function renderDashboard(){
   const selector = renderDashModeSelector();
   const timeFilter = renderDashTimeFilterPanel();
 
-  if(mode === 'global') return selector + timeFilter + renderDashGlobal();
-  if(mode === 'unidades') return selector + timeFilter + renderDashAllUnits();
-  if(mode === 'lineas') return selector + timeFilter + renderDashAllLineas();
-  if(mode === 'proyectos') return selector + timeFilter + renderDashAllProjects();
   if(mode === 'personas') return selector + timeFilter + renderDashAllPeople();
-
-  if(!state.dashNav) state.dashNav = {unidad:null, linea:null, projectId:null, personId:null};
-  const nav = state.dashNav;
-  const crumb = dashBreadcrumb();
-  if(nav.personId) return selector + timeFilter + crumb + renderDashPersona();
-  if(nav.projectId) return selector + timeFilter + crumb + renderDashProyecto();
-  if(nav.linea) return selector + timeFilter + crumb + renderDashLinea();
-  if(nav.unidad) return selector + timeFilter + crumb + renderDashUnidad();
-  return selector + timeFilter + charts + crumb + renderDashRoot();
+  return selector + timeFilter + renderDashGlobal();
 }
 
 function renderDashRoot(){
@@ -2725,10 +2842,11 @@ function renderMatrizHeatmap(){
   months.forEach(m => { html += '<th style="text-align:center">'+fmtMonth(m)+'</th>'; });
   html += '</tr></thead><tbody>';
 
-  if(!state.people || state.people.length === 0){
-    html += '<tr><td colspan="'+(months.length+2)+'" class="empty">No hay colaboradores registrados.</td></tr>';
+  const filteredPeople = (state.people || []).filter(p => isPersonInEntityFilter(p));
+  if(filteredPeople.length === 0){
+    html += '<tr><td colspan="'+(months.length+2)+'" class="empty">No hay colaboradores para la estructura seleccionada en el filtro.</td></tr>';
   } else {
-    state.people.forEach(p => {
+    filteredPeople.forEach(p => {
       const cap = personCapacity(p);
       html += '<tr>'
         + '<td><strong>'+p.name+'</strong></td>'

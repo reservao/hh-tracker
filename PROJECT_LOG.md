@@ -14,31 +14,29 @@
 
 ## 🔄 2. Historial de Sesiones y Cambios
 
-### [2026-08-09] - Adaptabilidad Responsive (PC, Tablet y Celular)
-- **Diseño Multi-dispositivo (CSS Media Queries)**:
-  - **Pantallas de PC**: Diseño amplio en cuadrícula y tablas estructuradas.
-  - **Tablets (hasta 992px)**: Ajuste adaptativo de franja KPI a 3 columnas y márgenes optimizados.
-  - **Teléfonos Celulares (hasta 640px)**:
-    - Tarjetas KPI adaptadas a 2 columnas.
-    - Pestañas con desplazamiento horizontal táctil (*touch swipe*).
-    - Tablas de datos con *scroll horizontal fluido táctil* (`-webkit-overflow-scrolling: touch`).
-    - Botones y modales adaptados a pantallas táctiles pequeñas.
-- **Diseño Nivel 3**: Nombres completos de proyecto arriba y badges de Tipo/LN debajo (sin PEP).
-- **Matriz Heatmap**: 100% estática y sin popups oscuros.
+### [2026-08-09] - Simplificación del Dashboard y Filtro Dinámico Unificado por Estructura
+- **Eliminación de Pestañas Redundantes**: Se eliminaron las 4 sub-pestañas desuso de la navegación del Dashboard (`🏢 Jerarquía (Drilldown)`, `📁 Todas las Unidades`, `🏷️ Todas las Líneas`, `📊 Todos los Proyectos`).
+- **Perspectivas Activas**:
+  - `🌐 Resumen Global`
+  - `👥 Todo el Equipo`
+- **Nuevo Panel de Filtro por Estructura**:
+  - Se agregaron desplegables interactivos integrados en el panel de control: **Unidad de Negocio**, **Línea de Negocio** y **Proyecto**.
+  - **Dinámica 100% Reactiva**: Al seleccionar cualquiera de estos tres filtros (o combinarlos), todo el Dashboard (KPIs superiores, gráficos de portafolio, tablas de cumplimiento Nivel 1-3 y Matriz Heatmap) se filtra en tiempo real para mostrar únicamente la información seleccionada.
+  - Botón rápido `🧹 Limpiar Filtros` para restaurar la vista completa.
+- **Adaptabilidad Responsive**: 100% responsivo para PC, Tablet y Celulares.
 - **Modo de Sincronización**: Sincronización manual (`git pull` / `git push`).
 
 ---
 
 ## 🎯 3. Estado Actual de la Aplicación
 - **Archivos Clave**:
-  - `index.html`: Aplicación 100% responsiva para PC, Tablet y Celular.
+  - `index.html`: Dashboard simplificado, reactivo y con arquitectura de filtros dinámicos.
   - `PROJECT_LOG.md`: Bitácora de contexto e historial.
   - `firebase.json` / `.firebaserc`: Despliegue en Firebase Hosting (`hh-circularexpande`).
   - `.github/workflows`: CI/CD para despliegue automático desde GitHub.
-- **Estado**: Totalmente funcional y responsivo en todos los dispositivos.
+- **Estado**: Totalmente funcional, simplificado y optimizado.
 
 ---
 
 ## 📋 4. Próximos Pasos Pendientes
-1. Subir `index.html` y `PROJECT_LOG.md` actualizados a GitHub para aplicar el cambio responsive en producción.
-2. Probar la web desde un smartphone o tablet.
+1. Subir `index.html` y `PROJECT_LOG.md` actualizados a GitHub para aplicar este Dashboard simplificado y dinámico en producción.
