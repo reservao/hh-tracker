@@ -821,7 +821,11 @@ function renderDashTimeFilterPanel(){
     + filteredLineas.map(l => '<option value="'+l.nombre+'" '+(state.dashFilterLinea===l.nombre?'selected':'')+'>🏷️ '+l.nombre+(l.unidad?' ('+l.unidad+')':'')+'</option>').join('');
 
   let filteredProjects = projects;
-  if(state.dashFilterLinea !== 'all') filteredProjects = projects.filter(p => p.lineaNegocio === state.dashFilterLinea);
+  if(state.dashFilterLinea !== 'all') {
+    filteredProjects = projects.filter(p => p.lineaNegocio === state.dashFilterLinea);
+  } else if(state.dashFilterUnidad !== 'all') {
+    filteredProjects = projects.filter(p => isProjectInEntityFilter(p));
+  }
   const pOpts = '<option value="all">📊 Todos los Proyectos</option>'
     + filteredProjects.map(p => '<option value="'+p.id+'" '+(state.dashFilterProyecto===p.id?'selected':'')+'>' + (p.tipo==='admin'?'⚙️ ':'📂 ') + p.name + '</option>').join('');
 
