@@ -21,8 +21,27 @@
   --amber-bg: #FBF1DF;
   --red: #D6493E;
   --red-bg: #FBE7E5;
-  --radius: 10px;
+  --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --radius: 12px;
 }
+
+[data-theme="dark"]{
+  --navy: #38BDF8;
+  --navy-dark: #0F172A;
+  --bg: #0B0F19;
+  --surface: #151D2A;
+  --border: #232D3F;
+  --text: #F1F5F9;
+  --muted: #94A3B8;
+  --teal: #2DD4BF;
+  --teal-bg: rgba(45, 212, 191, 0.15);
+  --amber: #F59E0B;
+  --amber-bg: rgba(245, 158, 11, 0.15);
+  --red: #F87171;
+  --red-bg: rgba(248, 113, 113, 0.15);
+  --card-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
 *{box-sizing:border-box; margin:0; padding:0;}
 body{
   font-family:'Inter', system-ui, sans-serif;
@@ -30,21 +49,43 @@ body{
   color:var(--text);
   min-height:100vh;
   padding-bottom:60px;
+  transition: background 0.25s ease, color 0.25s ease;
 }
 .mono{ font-family:'JetBrains Mono', ui-monospace, monospace; }
 h1,h2,h3,.display{ font-family:'Space Grotesk', sans-serif; }
 .muted{ color:var(--muted); }
 button{ font-family:inherit; cursor:pointer; }
-input, select, textarea{ font-family:inherit; font-size:14px; }
+input, select, textarea{ font-family:inherit; font-size:14px; color:var(--text); background:var(--surface); }
 
 .topbar{
-  background:linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+  background:linear-gradient(135deg, #141B3D 0%, #0F172A 100%);
   color:#fff;
-  padding:28px 32px 20px;
+  padding:24px 32px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 .topbar-inner{ max-width:1180px; margin:0 auto; }
 .topbar h1{ font-size:24px; font-weight:700; letter-spacing:-0.02em; }
 .topbar .subtitle{ color:#B9C0E0; font-size:13.5px; margin-top:4px; }
+
+.quick-timer-bar{
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.quick-timer-display{
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: #5FE3CC;
+  min-width: 80px;
+}
 
 .kpi-strip{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-top:22px; }
 .kpi{ background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:var(--radius); padding:12px 14px; }
@@ -441,13 +482,27 @@ function switchHHSubTab(tab){
   state.hhSubTab = tab;
   renderContent();
 }
+function initTheme(){
+  const current = localStorage.getItem('hh_theme') || 'light';
+  document.documentElement.setAttribute('data-theme', current);
+}
+function toggleTheme(){
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('hh_theme', next);
+  renderTopButtons();
+}
+
 function renderTopButtons(){
   const el = document.getElementById('topNavButtons');
   const alertCount = getCriticalAlertsCount();
   const alertBadge = alertCount > 0 ? '<span style="background:var(--red); color:#fff; font-size:10px; padding:2px 6px; border-radius:10px; margin-left:4px; font-weight:800">' + alertCount + '</span>' : '';
+  const isDark = (document.documentElement.getAttribute('data-theme') || 'light') === 'dark';
 
   el.innerHTML =
-    '<button class="topbar-btn no-print" onclick="toggleOmniboxModal()" title="Buscar (Ctrl+K)">🔍 <span style="font-size:11.5px; opacity:0.85">Ctrl+K</span></button>'
+    '<button class="topbar-btn no-print" onclick="toggleTheme()" title="Cambiar Tema">' + (isDark ? '☀️ Claro' : '🌙 Oscuro') + '</button>'
+    + '<button class="topbar-btn no-print" onclick="toggleOmniboxModal()" title="Buscar (Ctrl+K)">🔍 <span style="font-size:11.5px; opacity:0.85">Ctrl+K</span></button>'
     + '<button class="topbar-btn no-print" onclick="toggleAlertsDrawer()" title="Centro de Alertas">🔔' + alertBadge + '</button>'
     + '<button class="topbar-btn '+(state.mainView==='dashboard'?'active':'')+'" onclick="switchMainView(\'dashboard\')">Dashboard</button>'
     + '<button class="topbar-btn '+(state.mainView==='hh'?'active':'')+'" onclick="switchMainView(\'hh\')">HH</button>'
@@ -458,6 +513,7 @@ function renderSubnav(){
   if(state.mainView!=='hh'){ el.innerHTML=''; return; }
   el.innerHTML = '<div class="tabs">'
     + '<button class="tab-btn '+(state.hhSubTab==='proyectos'?'active':'')+'" onclick="switchHHSubTab(\'proyectos\')">Proyectos</button>'
+    + '<button class="tab-btn '+(state.hhSubTab==='matriz'?'active':'')+'" onclick="switchHHSubTab(\'matriz\')">📊 Matriz de Disponibilidad (Heatmap)</button>'
     + '<button class="tab-btn '+(state.hhSubTab==='cargar'?'active':'')+'" onclick="switchHHSubTab(\'cargar\')">Cargar Horas</button>'
     + '</div>';
 }
@@ -499,6 +555,7 @@ function renderContent(){
   }
   else if(state.mainView==='hh'){
     if(state.hhSubTab==='proyectos') el.innerHTML = renderProyectos();
+    else if(state.hhSubTab==='matriz') el.innerHTML = renderMatrizHeatmap();
     else if(state.hhSubTab==='cargar') el.innerHTML = renderCargar();
   }
   else if(state.mainView==='config') el.innerHTML = renderConfig();
@@ -2512,6 +2569,24 @@ function renderCargar(){
       + '<p>Ve a Configuración → Equipo y agrega a las personas antes de cargar horas.</p>'
       + '<div style="margin-top:12px"><button class="btn btn-primary" onclick="switchMainView(\'config\')">Ir a Configuración</button></div></div></div>';
   }
+  const personOpts = state.people.map(p=>'<option value="'+p.id+'">'+p.name+' ('+(p.role||'Consultor')+')</option>').join('');
+  const projOpts = '<option value="">-- Selecciona Proyecto --</option><option value="admin">💼 Administración / Tareas Internas</option>' + state.projects.map(pr=>'<option value="'+pr.id+'">'+pr.name+' ('+(pr.client||'General')+')</option>').join('');
+
+  const timerCard = '<div class="card" style="border:1px solid var(--border); box-shadow:var(--card-shadow); margin-bottom:20px">'
+    + '<div class="card-header">'
+    + '<div><div class="card-title">⏱️ Cronómetro en Vivo (1-Click estilo Toggl)</div><div class="card-sub">Inicia el cronómetro mientras trabajas e imputa el tiempo automáticamente al terminar</div></div>'
+    + '<div class="quick-timer-display" id="qtimerDisplay">00:00:00</div>'
+    + '</div>'
+    + '<div class="form-grid">'
+    + '<div class="field"><label>Colaborador</label><select id="qtimerPerson">'+personOpts+'</select></div>'
+    + '<div class="field"><label>Proyecto / Tarea</label><select id="qtimerProject">'+projOpts+'</select></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Nota / Descripción de tarea</label><input id="qtimerNote" placeholder="Ej: Desarrollo de funcionalidad y revisión de arquitectura"></div>'
+    + '</div>'
+    + '<div style="margin-top:14px; display:flex; justify-content:flex-end">'
+    + '<button class="btn btn-primary" id="qtimerBtn" onclick="toggleQuickTimer()" style="background:var(--teal); font-weight:700">▶ Iniciar Cronómetro</button>'
+    + '</div>'
+    + '</div>';
+
   const filterOpts = '<option value="all">Todos los meses</option>' + lastMonthsDesc(12).map(m=>'<option value="'+m+'" '+(state.entryFilterMonth===m?'selected':'')+'>'+fmtMonth(m)+'</option>').join('');
 
   const entries = state.realEntries
@@ -2534,7 +2609,8 @@ function renderCargar(){
       + '</tr>';
   }).join('');
 
-  return '<div class="card">'
+  return timerCard
+    + '<div class="card">'
     + '<div class="card-title" style="margin-bottom:6px">Carga de planilla de horas (formato de la empresa)</div>'
     + '<p class="muted" style="font-size:12px; margin-bottom:14px">Sube el archivo tal como lo genera el sistema actual: una hoja por persona, con bloques semanales y horas por día. El mes se detecta automáticamente por las fechas del archivo. Las horas se <b>suman</b> a lo que ya exista — puedes subir varios archivos (ej. uno por unidad) sin perder lo cargado antes. Los proyectos se identifican por su código PEP inicial (ej. "2332.N.F99"); asegúrate de que cada proyecto tenga ese mismo código en su ficha.</p>'
     + '<div class="form-grid">'
@@ -2549,6 +2625,184 @@ function renderCargar(){
         ? '<table><thead><tr><th>Mes</th><th>Proyecto</th><th>Persona</th><th>Rol</th><th class="num">Horas</th><th>Nota</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
         : '<p class="muted" style="font-size:13px">Sin registros todavía.</p>')
     + '</div>';
+}
+
+// ---------- Quick Timer Logic (Toggl style) ----------
+let timerInterval = null;
+let timerSeconds = 0;
+let timerRunning = false;
+
+function toggleQuickTimer(){
+  const btn = document.getElementById('qtimerBtn');
+  const projectSel = document.getElementById('qtimerProject');
+  const personSel = document.getElementById('qtimerPerson');
+  const noteInput = document.getElementById('qtimerNote');
+
+  if(!timerRunning){
+    if(!projectSel || !personSel || !projectSel.value || !personSel.value){
+      showToast('Selecciona proyecto y colaborador antes de iniciar.');
+      return;
+    }
+    timerRunning = true;
+    if(btn){
+      btn.innerHTML = '⏹ Detener y Guardar';
+      btn.style.background = 'var(--red)';
+    }
+
+    timerInterval = setInterval(() => {
+      timerSeconds++;
+      updateTimerDisplay();
+    }, 1000);
+  } else {
+    clearInterval(timerInterval);
+    timerRunning = false;
+    if(btn){
+      btn.innerHTML = '▶ Iniciar Cronómetro';
+      btn.style.background = 'var(--teal)';
+    }
+
+    const hours = Number((timerSeconds / 3600).toFixed(2));
+    if(hours > 0){
+      const newEntry = {
+        id: uid('rentr'),
+        category: projectSel.value === 'admin' ? 'admin' : 'project',
+        projectId: projectSel.value === 'admin' ? '' : projectSel.value,
+        personId: personSel.value,
+        month: currentMonth(),
+        hours: hours,
+        note: (noteInput ? noteInput.value.trim() : '') || 'Cronómetro en vivo',
+        source: 'timer',
+        createdAt: new Date().toISOString()
+      };
+      state.realEntries.push(newEntry);
+      persistEntries();
+      showToast('¡Tiempo registrado: ' + hours + ' hrs!');
+      renderAll();
+    } else {
+      showToast('Tiempo muy corto (menos de 1 min), no se registró.');
+    }
+    timerSeconds = 0;
+    updateTimerDisplay();
+  }
+}
+
+function updateTimerDisplay(){
+  const disp = document.getElementById('qtimerDisplay');
+  if(!disp) return;
+  const h = Math.floor(timerSeconds / 3600);
+  const m = Math.floor((timerSeconds % 3600) / 60);
+  const s = timerSeconds % 60;
+  disp.textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+// ---------- Matriz de Disponibilidad (Heatmap estilo Float) ----------
+function renderMatrizHeatmap(){
+  const months = lastMonthsDesc(6);
+  let html = '<div class="card">'
+    + '<div class="card-header">'
+    + '<div><div class="card-title">📊 Matriz de Disponibilidad y Carga de Trabajo (Heatmap)</div><div class="card-sub">Visibilidad de ocupación del equipo por mes (inspirado en Float y Resource Guru)</div></div>'
+    + '<div style="display:flex; gap:10px; font-size:11.5px; align-items:center; flex-wrap:wrap">'
+    + '<span class="badge" style="background:var(--red-bg); color:var(--red)">🔴 >105% Sobrecargado</span>'
+    + '<span class="badge" style="background:var(--teal-bg); color:var(--teal)">🟢 75%-105% Óptimo</span>'
+    + '<span class="badge" style="background:var(--amber-bg); color:var(--amber)">🟡 <75% Disponible</span>'
+    + '</div>'
+    + '</div>'
+    + '<div style="overflow-x:auto">'
+    + '<table>'
+    + '<thead><tr><th>Colaborador</th><th>Rol</th>';
+
+  months.forEach(m => { html += '<th style="text-align:center">'+fmtMonth(m)+'</th>'; });
+  html += '</tr></thead><tbody>';
+
+  if(!state.people || state.people.length === 0){
+    html += '<tr><td colspan="'+(months.length+2)+'" class="empty">No hay colaboradores registrados.</td></tr>';
+  } else {
+    state.people.forEach(p => {
+      const cap = personCapacity(p);
+      html += '<tr>'
+        + '<td><strong style="cursor:pointer; color:var(--navy)" onclick="openPersonModalGlobal(\''+p.id+'\')">'+p.name+'</strong></td>'
+        + '<td><span class="chip">'+(p.role||'Consultor')+'</span></td>';
+
+      months.forEach(m => {
+        let proj = 0;
+        state.projects.forEach(projObj => {
+          (projObj.assignments||[]).forEach(a => {
+            if(a.personId === p.id && a.projectedByMonth && a.projectedByMonth[m]){
+              proj += Number(a.projectedByMonth[m]||0);
+            }
+          });
+        });
+        const real = personProjectHoursInMonth(p.id, m) + personAdminHoursInMonth(p.id, m);
+        const total = Math.max(proj, real);
+        const pct = cap > 0 ? Math.round((total / cap) * 100) : 0;
+        let bgStyle = 'var(--amber-bg)';
+        let textColor = 'var(--amber)';
+        if(pct > 105){ bgStyle = 'var(--red-bg)'; textColor = 'var(--red)'; }
+        else if(pct >= 75){ bgStyle = 'var(--teal-bg)'; textColor = 'var(--teal)'; }
+
+        html += '<td style="text-align:center">'
+          + '<div onclick="openPersonMonthBreakdown(\''+p.id+'\', \''+m+'\')" style="cursor:pointer; background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block; transition:transform 0.15s" title="Clic para ver detalle ('+total+'h de '+cap+'h)">'
+          + pct + '%'
+          + '<div style="font-size:10px; font-weight:400; opacity:0.85">'+fmtH(total)+'h</div>'
+          + '</div>'
+          + '</td>';
+      });
+      html += '</tr>';
+    });
+  }
+
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function openPersonMonthBreakdown(personId, monthStr){
+  const p = getPerson(personId);
+  if(!p) return;
+  const cap = personCapacity(p);
+
+  let projList = [];
+  state.projects.forEach(projObj => {
+    (projObj.assignments||[]).forEach(a => {
+      if(a.personId === personId && a.projectedByMonth && a.projectedByMonth[monthStr]){
+        projList.push({
+          projectName: projObj.name,
+          hours: Number(a.projectedByMonth[monthStr])
+        });
+      }
+    });
+  });
+
+  const realEntries = state.realEntries.filter(e => e.personId === personId && e.month === monthStr);
+  const totalReal = realEntries.reduce((s,e) => s + Number(e.hours||0), 0);
+  const totalProj = projList.reduce((s,x) => s + x.hours, 0);
+
+  let html = '<h3>Desglose de Ocupación: ' + p.name + ' (' + fmtMonth(monthStr) + ')</h3>'
+    + '<div style="margin-bottom:14px; font-size:13px"><span class="muted">Capacidad mensual estimada:</span> <strong>' + cap + ' hrs</strong></div>'
+    + '<div class="section-label">Proyectos Asignados (Proyectado)</div>';
+
+  if(projList.length === 0){
+    html += '<div class="muted" style="font-size:13px">Sin asignaciones proyectadas este mes.</div>';
+  } else {
+    html += '<ul>';
+    projList.forEach(x => { html += '<li style="margin-bottom:4px; font-size:13px"><strong>' + x.projectName + ':</strong> ' + fmtH(x.hours) + ' hrs</li>'; });
+    html += '</ul>';
+  }
+
+  html += '<div class="section-label" style="margin-top:16px">Registros Reales de Horas</div>';
+  if(realEntries.length === 0){
+    html += '<div class="muted" style="font-size:13px">Sin registros reales imputados.</div>';
+  } else {
+    html += '<ul>';
+    realEntries.forEach(e => {
+      const projName = e.category === 'admin' ? 'Administrativo/Interno' : (state.projects.find(pr => pr.id === e.projectId)?.name || 'Proyecto');
+      html += '<li style="margin-bottom:4px; font-size:13px"><strong>' + projName + ':</strong> ' + fmtH(e.hours) + ' hrs ' + (e.note ? '<em>(' + e.note + ')</em>' : '') + '</li>';
+    });
+    html += '</ul>';
+  }
+
+  html += '<div class="modal-actions" style="margin-top:20px"><button class="btn btn-primary" onclick="closeModal()">Cerrar</button></div>';
+  document.getElementById('modalBody').innerHTML = html;
+  openModal();
 }
 
 function deleteEntry(id){
@@ -2964,6 +3218,7 @@ function closeModal(){ document.getElementById('modalOverlay').classList.remove(
 document.getElementById('modalOverlay').addEventListener('click', function(e){ if(e.target.id==='modalOverlay') closeModal(); });
 
 // ---------- Init ----------
+initTheme();
 renderTopButtons();
 initFirestoreSync();
 </script>
