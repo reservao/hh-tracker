@@ -14,29 +14,36 @@
 
 ## 🔄 2. Historial de Sesiones y Cambios
 
-### [2026-08-09] - Simplificación del Dashboard y Filtro Dinámico Unificado por Estructura
-- **Eliminación de Pestañas Redundantes**: Se eliminaron las 4 sub-pestañas desuso de la navegación del Dashboard (`🏢 Jerarquía (Drilldown)`, `📁 Todas las Unidades`, `🏷️ Todas las Líneas`, `📊 Todos los Proyectos`).
-- **Perspectivas Activas**:
-  - `🌐 Resumen Global`
-  - `👥 Todo el Equipo`
-- **Nuevo Panel de Filtro por Estructura**:
-  - Se agregaron desplegables interactivos integrados en el panel de control: **Unidad de Negocio**, **Línea de Negocio** y **Proyecto**.
-  - **Dinámica 100% Reactiva**: Al seleccionar cualquiera de estos tres filtros (o combinarlos), todo el Dashboard (KPIs superiores, gráficos de portafolio, tablas de cumplimiento Nivel 1-3 y Matriz Heatmap) se filtra en tiempo real para mostrar únicamente la información seleccionada.
-  - Botón rápido `🧹 Limpiar Filtros` para restaurar la vista completa.
-- **Adaptabilidad Responsive**: 100% responsivo para PC, Tablet y Celulares.
-- **Modo de Sincronización**: Sincronización manual (`git pull` / `git push`).
+### [2026-08-09] - Transformación Visual 2.0 (Rediseño de Píldoras Métricas & Sistema Circular HR)
+- **Transformación de Celdas Numéricas (Píldoras de Métricas Visuales)**:
+  - Se reemplazaron los números de porcentaje planos por **Píldoras de Métricas Estilizadas (`.pct-pill`)**:
+    - 🟢 **Verde Menta (`pct-opt`)**: Cumplimiento óptimo (70% - 110%).
+    - 🔴 **Rojo Coral (`pct-over`)**: Sobreejecución (> 110%).
+    - 🟡 **Ámbar Dorado (`pct-under`)**: Subejecución (< 70%).
+    - ⚡ **Ámbar Alerta (`pct-warn`)**: Horas ejecutadas sin proyección previa.
+- **Efectos Interactivos en Filas (`.table-hover-row`)**:
+  - Al pasar el cursor sobre cualquier proyecto o unidad, la fila completa resalta con un fondo suave y una **línea de acento azul Circular HR** en el extremo izquierdo (`border-left: 3px solid #0073A8`).
+- **Paleta Corporativa Circular HR / Fundación Chile**:
+  - Azul Primario `#0073A8`, Azul Noche `#005075` y Turquesa Cyan `#4AEAED`.
+- **TopBar con Distintivo Oficial**:
+  - `CIRCULAR HR | Fundación Chile` en la cabecera.
+
+### [2026-08-09] - Reorganización del Dashboard: Matriz Heatmap a "Todo el Equipo"
+- **Redistribución de Componentes**:
+  - **`🌐 Resumen Global`**: Se removió el Heatmap de personas para mantener la pestaña 100% enfocada en métricas macro del portafolio (Consolidado, 9 Gráficos, Matriz por Unidad, Matriz por Línea y Matriz de Cumplimiento por Proyecto).
+  - **`👥 Todo el Equipo`**: Se ubicó en la parte superior la **`🔥 Matriz de Carga y Disponibilidad (% Ocupación Real vs. Capacidad)`** por integrante, seguida del bloque de Cards Individuales del Equipo.
 
 ---
 
 ## 🎯 3. Estado Actual de la Aplicación
 - **Archivos Clave**:
-  - `index.html`: Dashboard simplificado, reactivo y con arquitectura de filtros dinámicos.
-  - `PROJECT_LOG.md`: Bitácora de contexto e historial.
-  - `firebase.json` / `.firebaserc`: Despliegue en Firebase Hosting (`hh-circularexpande`).
-  - `.github/workflows`: CI/CD para despliegue automático desde GitHub.
-- **Estado**: Totalmente funcional, simplificado y optimizado.
+  - `index.html`: Aplicación con suite analítica completa (9 gráficos + 3 matrices de cumplimiento).
+  - `PROJECT_LOG.md`: Historial de cambios.
+  - `firebase.json` / `.firebaserc`: Hosting en Firebase (`hh-circularexpande`).
+- **Estado**: 100% Funcional, completo y renovado visualmente.
 
 ---
 
 ## 📋 4. Próximos Pasos Pendientes
-1. Subir `index.html` y `PROJECT_LOG.md` actualizados a GitHub para aplicar este Dashboard simplificado y dinámico en producción.
+1. Revisión visual por parte del usuario.
+
