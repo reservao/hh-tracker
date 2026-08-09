@@ -2569,23 +2569,6 @@ function renderCargar(){
       + '<p>Ve a Configuración → Equipo y agrega a las personas antes de cargar horas.</p>'
       + '<div style="margin-top:12px"><button class="btn btn-primary" onclick="switchMainView(\'config\')">Ir a Configuración</button></div></div></div>';
   }
-  const personOpts = state.people.map(p=>'<option value="'+p.id+'">'+p.name+' ('+(p.role||'Consultor')+')</option>').join('');
-  const projOpts = '<option value="">-- Selecciona Proyecto --</option><option value="admin">💼 Administración / Tareas Internas</option>' + state.projects.map(pr=>'<option value="'+pr.id+'">'+pr.name+' ('+(pr.client||'General')+')</option>').join('');
-
-  const timerCard = '<div class="card" style="border:1px solid var(--border); box-shadow:var(--card-shadow); margin-bottom:20px">'
-    + '<div class="card-header">'
-    + '<div><div class="card-title">⏱️ Cronómetro en Vivo (1-Click estilo Toggl)</div><div class="card-sub">Inicia el cronómetro mientras trabajas e imputa el tiempo automáticamente al terminar</div></div>'
-    + '<div class="quick-timer-display" id="qtimerDisplay">00:00:00</div>'
-    + '</div>'
-    + '<div class="form-grid">'
-    + '<div class="field"><label>Colaborador</label><select id="qtimerPerson">'+personOpts+'</select></div>'
-    + '<div class="field"><label>Proyecto / Tarea</label><select id="qtimerProject">'+projOpts+'</select></div>'
-    + '<div class="field" style="grid-column:1/-1"><label>Nota / Descripción de tarea</label><input id="qtimerNote" placeholder="Ej: Desarrollo de funcionalidad y revisión de arquitectura"></div>'
-    + '</div>'
-    + '<div style="margin-top:14px; display:flex; justify-content:flex-end">'
-    + '<button class="btn btn-primary" id="qtimerBtn" onclick="toggleQuickTimer()" style="background:var(--teal); font-weight:700">▶ Iniciar Cronómetro</button>'
-    + '</div>'
-    + '</div>';
 
   const filterOpts = '<option value="all">Todos los meses</option>' + lastMonthsDesc(12).map(m=>'<option value="'+m+'" '+(state.entryFilterMonth===m?'selected':'')+'>'+fmtMonth(m)+'</option>').join('');
 
@@ -2609,90 +2592,21 @@ function renderCargar(){
       + '</tr>';
   }).join('');
 
-  return timerCard
-    + '<div class="card">'
-    + '<div class="card-title" style="margin-bottom:6px">Carga de planilla de horas (formato de la empresa)</div>'
-    + '<p class="muted" style="font-size:12px; margin-bottom:14px">Sube el archivo tal como lo genera el sistema actual: una hoja por persona, con bloques semanales y horas por día. El mes se detecta automáticamente por las fechas del archivo. Las horas se <b>suman</b> a lo que ya exista — puedes subir varios archivos (ej. uno por unidad) sin perder lo cargado antes. Los proyectos se identifican por su código PEP inicial (ej. "2332.N.F99"); asegúrate de que cada proyecto tenga ese mismo código en su ficha.</p>'
+  return '<div class="card">'
+    + '<div class="card-title" style="margin-bottom:6px">Carga de planilla de horas consolidadas (formato de la empresa)</div>'
+    + '<p class="muted" style="font-size:12px; margin-bottom:14px">Sube la planilla consolidada a fin de mes tal como la genera el sistema actual: una hoja por persona, con bloques semanales y horas por día. El mes se detecta automáticamente por las fechas del archivo. Las horas se <b>suman</b> a lo que ya exista — puedes subir varios archivos (ej. uno por unidad) sin perder lo cargado antes. Los proyectos se identifican por su código PEP inicial (ej. "2332.N.F99"); asegúrate de que cada proyecto tenga ese mismo código en su ficha.</p>'
     + '<div class="form-grid">'
-    + '<div class="field" style="grid-column:1/-1"><label>Archivo Excel</label><input type="file" id="bulk_file" accept=".xlsx,.xls"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Archivo Excel Consolidado</label><input type="file" id="bulk_file" accept=".xlsx,.xls"></div>'
     + '</div>'
     + '<div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="uploadTimesheetExcel()">Cargar archivo</button></div>'
     + '</div>'
     + '<div class="card">'
-    + '<div class="filter-bar"><div class="card-title" style="margin-right:auto">Registros recientes</div>'
+    + '<div class="filter-bar"><div class="card-title" style="margin-right:auto">Registros consolidados recientes</div>'
     + '<select id="entryFilter" onchange="state.entryFilterMonth=this.value; renderContent();" style="padding:7px 10px; border:1px solid var(--border); border-radius:7px">'+filterOpts+'</select></div>'
     + (entries.length
         ? '<table><thead><tr><th>Mes</th><th>Proyecto</th><th>Persona</th><th>Rol</th><th class="num">Horas</th><th>Nota</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
         : '<p class="muted" style="font-size:13px">Sin registros todavía.</p>')
     + '</div>';
-}
-
-// ---------- Quick Timer Logic (Toggl style) ----------
-let timerInterval = null;
-let timerSeconds = 0;
-let timerRunning = false;
-
-function toggleQuickTimer(){
-  const btn = document.getElementById('qtimerBtn');
-  const projectSel = document.getElementById('qtimerProject');
-  const personSel = document.getElementById('qtimerPerson');
-  const noteInput = document.getElementById('qtimerNote');
-
-  if(!timerRunning){
-    if(!projectSel || !personSel || !projectSel.value || !personSel.value){
-      showToast('Selecciona proyecto y colaborador antes de iniciar.');
-      return;
-    }
-    timerRunning = true;
-    if(btn){
-      btn.innerHTML = '⏹ Detener y Guardar';
-      btn.style.background = 'var(--red)';
-    }
-
-    timerInterval = setInterval(() => {
-      timerSeconds++;
-      updateTimerDisplay();
-    }, 1000);
-  } else {
-    clearInterval(timerInterval);
-    timerRunning = false;
-    if(btn){
-      btn.innerHTML = '▶ Iniciar Cronómetro';
-      btn.style.background = 'var(--teal)';
-    }
-
-    const hours = Number((timerSeconds / 3600).toFixed(2));
-    if(hours > 0){
-      const newEntry = {
-        id: uid('rentr'),
-        category: projectSel.value === 'admin' ? 'admin' : 'project',
-        projectId: projectSel.value === 'admin' ? '' : projectSel.value,
-        personId: personSel.value,
-        month: currentMonth(),
-        hours: hours,
-        note: (noteInput ? noteInput.value.trim() : '') || 'Cronómetro en vivo',
-        source: 'timer',
-        createdAt: new Date().toISOString()
-      };
-      state.realEntries.push(newEntry);
-      persistEntries();
-      showToast('¡Tiempo registrado: ' + hours + ' hrs!');
-      renderAll();
-    } else {
-      showToast('Tiempo muy corto (menos de 1 min), no se registró.');
-    }
-    timerSeconds = 0;
-    updateTimerDisplay();
-  }
-}
-
-function updateTimerDisplay(){
-  const disp = document.getElementById('qtimerDisplay');
-  if(!disp) return;
-  const h = Math.floor(timerSeconds / 3600);
-  const m = Math.floor((timerSeconds % 3600) / 60);
-  const s = timerSeconds % 60;
-  disp.textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
 }
 
 // ---------- Matriz de Disponibilidad (Heatmap estilo Float) ----------
