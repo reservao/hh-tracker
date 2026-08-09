@@ -903,12 +903,6 @@ function renderDashModeSelector(){
     + '</div>'
     + '</div>';
 }
-    + '<div style="display:flex; gap:8px; align-items:center;" class="no-print">'
-    + '<button class="btn btn-secondary btn-sm" onclick="exportFullReportExcel()">📥 Exportar Excel</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Imprimir PDF</button>'
-    + '</div>'
-    + '</div>';
-}
 
 function dashCardFor(label, sublabel, personIds, onClick){
   const people = state.people.filter(p=>personIds.has(p.id));
