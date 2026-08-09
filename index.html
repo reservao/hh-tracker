@@ -1621,14 +1621,11 @@ function renderDashProjectComplianceTable(){
     else if(totalRatio < 0.7 && totalProj > 0) totalColor = 'var(--amber)';
 
     return '<tr>'
-      + '<td style="font-size:12.5px; padding:10px; min-width:320px; vertical-align:middle;">'
-      + '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:4px;">'
+      + '<td style="font-size:12.5px; padding:10px 12px; min-width:280px; vertical-align:middle;">'
+      + '<div style="line-height:1.3;"><strong style="color:var(--text); font-size:13px; font-weight:700;">' + p.name + '</strong></div>'
+      + '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px;">'
       + typeBadge
-      + '<strong style="color:var(--text); font-size:13px; font-weight:700;">' + p.name + '</strong>'
-      + '</div>'
-      + '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">'
       + lineaText
-      + (p.pep ? '<span class="muted" style="font-size:11.5px;">(PEP: ' + p.pep + ')</span>' : '')
       + '</div>'
       + '</td>'
       + monthCells
@@ -2716,7 +2713,7 @@ function renderMatrizHeatmap(){
         else if(pct >= 75){ bgStyle = 'var(--teal-bg)'; textColor = 'var(--teal)'; }
 
         html += '<td style="text-align:center">'
-          + '<div onclick="openPersonMonthBreakdown(\''+p.id+'\', \''+m+'\')" style="cursor:pointer; background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block; transition:transform 0.15s" title="Detalle de ocupación ('+total+'h de '+cap+'h)">'
+          + '<div style="background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block" title="Ocupación: '+fmtH(total)+'h de '+fmtH(cap)+'h">'
           + pct + '%'
           + '<div style="font-size:10px; font-weight:400; opacity:0.85">'+fmtH(total)+'h</div>'
           + '</div>'

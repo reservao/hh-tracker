@@ -14,26 +14,30 @@
 
 ## 🔄 2. Historial de Sesiones y Cambios
 
-### [2026-08-09] - Mejora Visual: Nombres Completos y Distinción de Tipo/Línea en Matriz Nivel 3
-- **Visualización sin Truncamiento**: Se eliminó el límite de ancho (`max-width: 300px` con puntos suspensivos `...`) en la Matriz Nivel 3 (Cumplimiento por Proyecto). Ahora los nombres de proyectos se muestran **completos y legibles**.
-- **Jerarquía Visual Clara**:
-  - Cada fila muestra en la primera línea la etiqueta de tipo (`📂 Proy` o `⚙️ Admin`) junto al nombre completo del proyecto.
-  - Debajo muestra un badge con la **Línea de Negocio** (`🏷️ GAL`, `🏷️ Consultoría`, etc.) y el código **PEP**.
-- **Ajustes previos**: Matriz Heatmap 100% de solo lectura y remoción de pestaña redundante en HH.
-- **Modo de Sincronización**: Sincronización manual (`git pull` / `git push`).
+### [2026-08-09] - Simplificación de Diseño Nivel 3, Heatmap de Solo Lectura y Limpieza de Entorno
+- **Diseño Ultra Limpio en Nivel 3 (Matriz por Proyecto)**:
+  - **Línea 1**: Únicamente el **nombre del proyecto** en negrita (ej: `3981.N.F99 Competencias Laborales EECC Mantenimiento Planta 2026`).
+  - **Línea 2 (Justo debajo)**: Insignia de tipo (`📂 Proy` o `⚙️ Admin`) y la Línea de Negocio (`🏷️ GAL`).
+  - **Remoción de PEP**: Se eliminó totalmente el texto `(PEP: ...)` de esta tabla para evitar sobrecarga de texto.
+- **Matriz Heatmap 100% Estática (Sin Popups / Sin Pantalla Negra)**:
+  - Se removieron los eventos de clic y el modo modal emergente oscuro (`modal-overlay`). La matriz es un tablero estático donde la información se consulta pasando el cursor (`tooltip`).
+  - Se eliminó la pestaña redundante de Heatmap en la sección HH (se mantiene únicamente en el Dashboard Global y en Todo el Equipo).
+- **Desactivación de Popups en Windows**:
+  - Se desactivó la tarea programada de 5 minutos (`AntigravityAutoSync`) y el script `AntigravityRealtimeSync.vbs` para evitar cualquier parpadeo de consola en el sistema operativo.
+- **Modo de Sincronización**: Control **manual** (el usuario sube los archivos directamente a GitHub o por Git).
 
 ---
 
 ## 🎯 3. Estado Actual de la Aplicación
 - **Archivos Clave**:
-  - `index.html`: Aplicación con diseño optimizado para legibilidad completa de nombres de proyectos y clasificación.
+  - `index.html`: Aplicación optimizada, limpia y sin popups.
   - `PROJECT_LOG.md`: Bitácora de contexto e historial.
   - `firebase.json` / `.firebaserc`: Despliegue en Firebase Hosting (`hh-circularexpande`).
   - `.github/workflows`: CI/CD para despliegue automático desde GitHub.
-- **Estado**: Totalmente funcional y listo para desarrollo o uso.
+- **Estado**: Totalmente funcional y optimizado.
 
 ---
 
 ## 📋 4. Próximos Pasos Pendientes
-1. Subir `index.html` y `PROJECT_LOG.md` actualizados a GitHub para aplicar el cambio en producción.
-2. Al realizar cambios en el código desde este u otro PC, ejecutar `git push origin main` o subir por la web de GitHub.
+1. Subir `index.html` y `PROJECT_LOG.md` a la web de GitHub para publicar el diseño limpio final en producción.
+2. Al realizar cambios desde este u otro equipo, actualizar los archivos en GitHub.
