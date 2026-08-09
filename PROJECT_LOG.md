@@ -14,16 +14,19 @@
 
 ## 🔄 2. Historial de Sesiones y Cambios
 
-### [2026-08-09] - Ajustes de Matriz Heatmap (Visualización Pura y Pestañas)
-- **Eliminación de Redundancia de Pestañas**: Se removió la subpestaña Heatmap de la sección **HH**, dejándola únicamente en **Dashboard (Resumen Global)** y en **Dashboard -> Perspectiva "Todo el Equipo"**.
-- **Modo 100% Solo Lectura / Visualización**: Se eliminó el enlace de edición de personas (`openPersonModalGlobal`) en los nombres de la tabla Heatmap. La matriz es ahora un componente estrictamente analítico de visualización sin posibilidad de disparar formularios de modificación.
+### [2026-08-09] - Mejora Visual: Nombres Completos y Distinción de Tipo/Línea en Matriz Nivel 3
+- **Visualización sin Truncamiento**: Se eliminó el límite de ancho (`max-width: 300px` con puntos suspensivos `...`) en la Matriz Nivel 3 (Cumplimiento por Proyecto). Ahora los nombres de proyectos se muestran **completos y legibles**.
+- **Jerarquía Visual Clara**:
+  - Cada fila muestra en la primera línea la etiqueta de tipo (`📂 Proy` o `⚙️ Admin`) junto al nombre completo del proyecto.
+  - Debajo muestra un badge con la **Línea de Negocio** (`🏷️ GAL`, `🏷️ Consultoría`, etc.) y el código **PEP**.
+- **Ajustes previos**: Matriz Heatmap 100% de solo lectura y remoción de pestaña redundante en HH.
 - **Modo de Sincronización**: Sincronización manual (`git pull` / `git push`).
 
 ---
 
 ## 🎯 3. Estado Actual de la Aplicación
 - **Archivos Clave**:
-  - `index.html`: Aplicación completa limpia y ajustada para visualización pura del Heatmap.
+  - `index.html`: Aplicación con diseño optimizado para legibilidad completa de nombres de proyectos y clasificación.
   - `PROJECT_LOG.md`: Bitácora de contexto e historial.
   - `firebase.json` / `.firebaserc`: Despliegue en Firebase Hosting (`hh-circularexpande`).
   - `.github/workflows`: CI/CD para despliegue automático desde GitHub.
@@ -32,5 +35,5 @@
 ---
 
 ## 📋 4. Próximos Pasos Pendientes
-1. Al realizar cambios en el código desde este u otro PC, ejecutar `git push origin main`.
-2. Actualizar este log (`PROJECT_LOG.md`) al finalizar cada sesión de desarrollo relevante.
+1. Subir `index.html` y `PROJECT_LOG.md` actualizados a GitHub para aplicar el cambio en producción.
+2. Al realizar cambios en el código desde este u otro PC, ejecutar `git push origin main` o subir por la web de GitHub.

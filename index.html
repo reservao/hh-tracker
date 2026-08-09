@@ -1563,10 +1563,13 @@ function renderDashProjectComplianceTable(){
   headCols += '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center; background:var(--surface)">Total %</th>';
 
   const rows = state.projects.map(p => {
-    const lineaName = p.lineaNegocio ? ' (' + p.lineaNegocio + ')' : ' (Sin LN)';
+    const lineaText = p.lineaNegocio
+      ? '<span style="display:inline-block; font-size:11px; padding:1px 6px; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--muted); font-weight:600;">🏷️ ' + p.lineaNegocio + '</span>'
+      : '<span style="display:inline-block; font-size:11px; padding:1px 6px; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--muted);">🏷️ Sin LN</span>';
+
     const typeBadge = p.tipo === 'admin'
-      ? '<span style="font-size:10px; padding:2px 5px; background:#FBF1DF; color:#DB9A2E; border-radius:4px; font-weight:700; margin-left:4px">⚙️ Admin</span>'
-      : '<span style="font-size:10px; padding:2px 5px; background:#E6F5F2; color:#1E9E8B; border-radius:4px; font-weight:700; margin-left:4px">📂 Proy</span>';
+      ? '<span style="font-size:11px; padding:2px 6px; background:#FBF1DF; color:#DB9A2E; border-radius:5px; font-weight:700; display:inline-flex; align-items:center; gap:3px;">⚙️ Admin</span>'
+      : '<span style="font-size:11px; padding:2px 6px; background:#E6F5F2; color:#1E9E8B; border-radius:5px; font-weight:700; display:inline-flex; align-items:center; gap:3px;">📂 Proy</span>';
 
     let totalProj = 0, totalAct = 0;
     const monthCells = monthsFull.map(m => {
@@ -1618,8 +1621,15 @@ function renderDashProjectComplianceTable(){
     else if(totalRatio < 0.7 && totalProj > 0) totalColor = 'var(--amber)';
 
     return '<tr>'
-      + '<td style="font-size:12.5px; padding:8px 10px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'
-      + '<b>' + p.name + '</b><span class="muted" style="font-size:11.5px">' + lineaName + '</span>' + typeBadge
+      + '<td style="font-size:12.5px; padding:10px; min-width:320px; vertical-align:middle;">'
+      + '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:4px;">'
+      + typeBadge
+      + '<strong style="color:var(--text); font-size:13px; font-weight:700;">' + p.name + '</strong>'
+      + '</div>'
+      + '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">'
+      + lineaText
+      + (p.pep ? '<span class="muted" style="font-size:11.5px;">(PEP: ' + p.pep + ')</span>' : '')
+      + '</div>'
       + '</td>'
       + monthCells
       + '<td class="mono" style="text-align:center; font-weight:800; font-size:12px; color:' + totalColor + '; background:var(--surface)">' + totalPct + '</td>'
