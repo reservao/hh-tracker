@@ -14,22 +14,23 @@
 
 ## 🔄 2. Historial de Sesiones y Cambios
 
-### [2026-08-09] - Configuración de Control Manual y Bitácora
-- **Modalidad de Sincronización**: Transición a **sincronización manual** (git pull / git push manual por parte del usuario entre computadores).
-- **Organización de Carpetas**: Ubicación centralizada de proyectos en `Downloads/Proyectos IA/`.
-- **Bitácora**: Creación de este archivo `PROJECT_LOG.md` como fuente única de verdad para el contexto entre distintas computadores e IAs.
+### [2026-08-09] - Ajustes de Matriz Heatmap (Visualización Pura y Pestañas)
+- **Eliminación de Redundancia de Pestañas**: Se removió la subpestaña Heatmap de la sección **HH**, dejándola únicamente en **Dashboard (Resumen Global)** y en **Dashboard -> Perspectiva "Todo el Equipo"**.
+- **Modo 100% Solo Lectura / Visualización**: Se eliminó el enlace de edición de personas (`openPersonModalGlobal`) en los nombres de la tabla Heatmap. La matriz es ahora un componente estrictamente analítico de visualización sin posibilidad de disparar formularios de modificación.
+- **Modo de Sincronización**: Sincronización manual (`git pull` / `git push`).
 
 ---
 
 ## 🎯 3. Estado Actual de la Aplicación
 - **Archivos Clave**:
-  - `index.html`: Estructura principal y lógica de la aplicación HH Tracker.
-  - `404.html`: Página de fallback.
-  - `firebase.json` / `.firebaserc`: Configuración de hosting/despliegue en Firebase.
-- **Estado**: Funcional. Pendiente de sincronizar cambios recientes realizados desde el otro equipo mediante `git pull origin main`.
+  - `index.html`: Aplicación completa limpia y ajustada para visualización pura del Heatmap.
+  - `PROJECT_LOG.md`: Bitácora de contexto e historial.
+  - `firebase.json` / `.firebaserc`: Despliegue en Firebase Hosting (`hh-circularexpande`).
+  - `.github/workflows`: CI/CD para despliegue automático desde GitHub.
+- **Estado**: Totalmente funcional y listo para desarrollo o uso.
 
 ---
 
 ## 📋 4. Próximos Pasos Pendientes
-1. Descargar/Fusionar cambios recientes del repositorio remoto (`git pull origin main`).
-2. Actualizar este log tras cada sesión importante de cambios en el código.
+1. Al realizar cambios en el código desde este u otro PC, ejecutar `git push origin main`.
+2. Actualizar este log (`PROJECT_LOG.md`) al finalizar cada sesión de desarrollo relevante.

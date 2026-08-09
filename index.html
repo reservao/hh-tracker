@@ -482,7 +482,7 @@ function gauge(projected, actual){
 // ---------- Tabs ----------
 function switchMainView(view){
   state.mainView = view;
-  if(view==='hh' && !state.hhSubTab) state.hhSubTab = 'proyectos';
+  if(view==='hh' && (!state.hhSubTab || state.hhSubTab==='matriz')) state.hhSubTab = 'proyectos';
   renderTopButtons();
   renderContent();
 }
@@ -523,7 +523,6 @@ function renderSubnav(){
   if(state.mainView!=='hh'){ el.innerHTML=''; return; }
   el.innerHTML = '<div class="tabs">'
     + '<button class="tab-btn '+(state.hhSubTab==='proyectos'?'active':'')+'" onclick="switchHHSubTab(\'proyectos\')">Proyectos</button>'
-    + '<button class="tab-btn '+(state.hhSubTab==='matriz'?'active':'')+'" onclick="switchHHSubTab(\'matriz\')">📊 Matriz de Disponibilidad (Heatmap)</button>'
     + '<button class="tab-btn '+(state.hhSubTab==='cargar'?'active':'')+'" onclick="switchHHSubTab(\'cargar\')">Cargar Horas</button>'
     + '</div>';
 }
@@ -564,9 +563,8 @@ function renderContent(){
     renderDashboardCharts();
   }
   else if(state.mainView==='hh'){
-    if(state.hhSubTab==='proyectos') el.innerHTML = renderProyectos();
-    else if(state.hhSubTab==='matriz') el.innerHTML = renderMatrizHeatmap();
-    else if(state.hhSubTab==='cargar') el.innerHTML = renderCargar();
+    if(state.hhSubTab==='cargar') el.innerHTML = renderCargar();
+    else el.innerHTML = renderProyectos();
   }
   else if(state.mainView==='config') el.innerHTML = renderConfig();
 }
@@ -2687,7 +2685,7 @@ function renderMatrizHeatmap(){
     state.people.forEach(p => {
       const cap = personCapacity(p);
       html += '<tr>'
-        + '<td><strong style="cursor:pointer; color:var(--navy)" onclick="openPersonModalGlobal(\''+p.id+'\')">'+p.name+'</strong></td>'
+        + '<td><strong>'+p.name+'</strong></td>'
         + '<td><span class="chip">'+(p.role||'Consultor')+'</span></td>';
 
       months.forEach(m => {
@@ -2708,7 +2706,7 @@ function renderMatrizHeatmap(){
         else if(pct >= 75){ bgStyle = 'var(--teal-bg)'; textColor = 'var(--teal)'; }
 
         html += '<td style="text-align:center">'
-          + '<div onclick="openPersonMonthBreakdown(\''+p.id+'\', \''+m+'\')" style="cursor:pointer; background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block; transition:transform 0.15s" title="Clic para ver detalle ('+total+'h de '+cap+'h)">'
+          + '<div onclick="openPersonMonthBreakdown(\''+p.id+'\', \''+m+'\')" style="cursor:pointer; background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block; transition:transform 0.15s" title="Detalle de ocupación ('+total+'h de '+cap+'h)">'
           + pct + '%'
           + '<div style="font-size:10px; font-weight:400; opacity:0.85">'+fmtH(total)+'h</div>'
           + '</div>'
