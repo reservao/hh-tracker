@@ -1343,6 +1343,15 @@ function renderDashAllPeople(){
   }).join('');
 
   html += '<div class="card"><table><thead><tr><th>Nombre</th><th>Línea de Negocio</th><th>Rol</th><th class="num">Tarifa/h</th><th class="num">Total Proyectadas</th><th class="num">Total Reales</th><th>Consumo</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  
+  // Separador de bloque y Matriz Heatmap en la vista de Todo el Equipo
+  html += '<div style="margin-top:28px; margin-bottom:16px; text-align:center; border-bottom:1px dashed var(--border); line-height:0.1em;">'
+    + '<span style="background:var(--bg); padding:0 14px; font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--muted); text-transform:uppercase;">'
+    + '🔥 MATRIZ DE DISPONIBILIDAD Y CARGA DE TRABAJO (HEATMAP)'
+    + '</span>'
+    + '</div>';
+  html += renderMatrizHeatmap();
+
   return html;
 }
 
@@ -2089,6 +2098,14 @@ function renderDashGlobal(){
   html += renderDashLineasComplianceTable();
   html += renderDashProjectComplianceTable();
 
+  // Separador de bloque y Matriz Heatmap al final del Dashboard Global
+  html += '<div style="margin-top:28px; margin-bottom:16px; text-align:center; border-bottom:1px dashed var(--border); line-height:0.1em;">'
+    + '<span style="background:var(--bg); padding:0 14px; font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--muted); text-transform:uppercase;">'
+    + '🔥 MATRIZ DE DISPONIBILIDAD Y CARGA DE TRABAJO (HEATMAP)'
+    + '</span>'
+    + '</div>';
+  html += renderMatrizHeatmap();
+
   return html;
 }
 
@@ -2621,8 +2638,33 @@ function renderCargar(){
 }
 
 // ---------- Matriz de Disponibilidad (Heatmap estilo Float) ----------
+function getFilteredMonthsListForHeatmap(){
+  const years = (state.dashYearsFilter || []).filter(y => y !== 'all');
+  const months = (state.dashMonthsFilter || []).filter(m => m !== 'all');
+
+  if(years.length > 0 && months.length > 0){
+    const list = [];
+    years.slice().sort().forEach(y => {
+      months.slice().sort().forEach(m => {
+        list.push(y + '-' + m);
+      });
+    });
+    return list;
+  } else if(years.length > 0){
+    const list = [];
+    const allMonths = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+    years.slice().sort().forEach(y => {
+      allMonths.forEach(m => {
+        list.push(y + '-' + m);
+      });
+    });
+    return list;
+  }
+  return lastMonthsDesc(6);
+}
+
 function renderMatrizHeatmap(){
-  const months = lastMonthsDesc(6);
+  const months = getFilteredMonthsListForHeatmap();
   let html = '<div class="card">'
     + '<div class="card-header">'
     + '<div><div class="card-title">📊 Matriz de Disponibilidad y Carga de Trabajo (Heatmap)</div><div class="card-sub">Visibilidad de ocupación del equipo por mes (inspirado en Float y Resource Guru)</div></div>'
