@@ -177,6 +177,45 @@ td.mono, th.num{ text-align:right; }
 .alert-item.amber{ background:var(--amber-bg); color:var(--amber); }
 
 
+/* Responsive Design (PC, Tablet y Celular) */
+@media (max-width: 992px) {
+  .topbar { padding: 20px 20px 16px; }
+  .tabs, .content { padding: 0 20px; }
+  .kpi-strip { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+}
+
+@media (max-width: 640px) {
+  .topbar { padding: 16px 14px 14px; }
+  .topbar h1 { font-size: 20px; }
+  .topbar .subtitle { font-size: 12px; }
+  .topbar-btn { padding: 7px 12px; font-size: 12px; }
+  #topNavButtons { width: 100%; justify-content: flex-start; margin-top: 8px; flex-wrap: wrap; }
+  
+  .tabs { padding: 0 14px; overflow-x: auto; flex-wrap: nowrap; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+  .tab-btn { padding: 10px 12px; font-size: 13px; flex-shrink: 0; }
+  
+  .content { padding: 0 12px; margin-top: 14px; }
+  .card { padding: 14px; border-radius: 10px; }
+  .card-title { font-size: 15px; }
+  
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
+  .kpi:last-child { grid-column: span 2; }
+  .kpi { padding: 10px 12px; }
+  .kpi .kpi-value { font-size: 17px; }
+  
+  .person-row { grid-template-columns: 1fr; gap: 8px; padding: 12px 0; }
+  .filter-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .filter-bar select, .filter-bar input, .filter-bar button { width: 100%; }
+
+  .modal-overlay { padding: 16px 10px; }
+  .modal { padding: 18px 14px; width: 96%; }
+
+  /* Tablas con desplazamiento suave táctil en celulares */
+  .card div[style*="overflow-x:auto"], table {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 /* Styles for Print / PDF Export */
 @media print {
   body { background:#fff; padding-bottom:0; }
