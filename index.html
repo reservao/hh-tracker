@@ -308,7 +308,10 @@ td.mono, th.num{ text-align:right; }
           <span id="brandBadgeTag" style="background:linear-gradient(90deg, rgba(0,115,168,0.35), rgba(232,108,31,0.35)); border:1px solid rgba(255,255,255,0.4); border-radius:14px; padding:2px 10px; font-size:10.5px; font-weight:800; letter-spacing:0.06em; color:#FFFFFF; transition:all 0.3s ease;">CIRCULAR HR  ×  EXPANDE</span>
           <span style="font-size:11px; color:#B9C0E0; font-weight:600;">Fundación Chile</span>
         </div>
-        <h1>HH Tracker</h1>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <h1>HH Tracker</h1>
+          <span style="font-size:11.5px; background:rgba(255,255,255,0.22); border:1px solid rgba(255,255,255,0.35); padding:2px 9px; border-radius:12px; font-family:'JetBrains Mono', monospace; font-weight:700; color:#4AEAED; letter-spacing:0.04em;">v2.5.0 • 09-Ago 20:35</span>
+        </div>
         <div class="subtitle">Monitoreo de horas hombre por proyecto, persona y rol — proyectado vs. real</div>
       </div>
       <div style="display:flex; gap:8px" id="topNavButtons"></div>
@@ -324,7 +327,7 @@ td.mono, th.num{ text-align:right; }
 </div>
 
 <footer style="max-width:1180px; margin:40px auto 0; padding:20px 32px; font-size:12.5px; color:var(--muted); border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px">
-  <div><strong>HH Tracker v2.0</strong> — Monitoreo Consolidado de Horas Hombre</div>
+  <div><strong>HH Tracker v2.5.0 (Build 2026-08-09 20:35)</strong> — Monitoreo Consolidado de Horas Hombre</div>
   <div>Desarrollado por <strong>Ricardo Klempau</strong></div>
   <div style="display:flex; align-items:center; gap:8px"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--teal)"></span> Sincronizado en tiempo real con Firebase Firestore</div>
 </footer>
@@ -825,11 +828,20 @@ function isPersonInEntityFilter(person){
 
   if(state.dashFilterUnidad !== 'all'){
     const unidadPeople = new Set(peopleInUnidad(state.dashFilterUnidad).map(x=>x.id));
-    if(!unidadPeople.has(person.id)) return false;
+    const lineasInU = new Set(lineasDeUnidad(state.dashFilterUnidad));
+    const assignedInUnidad = state.projects.some(p => {
+      const isLineInU = p.lineaNegocio && lineasInU.has(p.lineaNegocio);
+      const isAssigned = (p.assignments||[]).some(a => a.personId === person.id);
+      return isAssigned && isLineInU;
+    });
+    if(!unidadPeople.has(person.id) && !assignedInUnidad) return false;
   }
 
   if(state.dashFilterLinea !== 'all'){
-    if((person.lineaNegocio || '') !== state.dashFilterLinea) return false;
+    if((person.lineaNegocio || '') !== state.dashFilterLinea){
+      const assignedInLinea = state.projects.some(p => p.lineaNegocio === state.dashFilterLinea && (p.assignments||[]).some(a => a.personId === person.id));
+      if(!assignedInLinea) return false;
+    }
   }
 
   if(state.dashFilterProyecto !== 'all'){
@@ -895,6 +907,7 @@ function renderDashModeSelector(){
     + '<div style="display:flex; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:3px; gap:2px;">'
     + '<button class="tab-btn ' + (mode === 'global' ? 'active' : '') + '" style="padding:8px 14px; border-radius:7px; border:none; font-size:13px;" onclick="setDashMode(\'global\')">🌐 Resumen Global</button>'
     + '<button class="tab-btn ' + (mode === 'personas' ? 'active' : '') + '" style="padding:8px 14px; border-radius:7px; border:none; font-size:13px;" onclick="setDashMode(\'personas\')">👥 Todo el Equipo</button>'
+    + '<button class="tab-btn ' + (mode === 'hierarchy' ? 'active' : '') + '" style="padding:8px 14px; border-radius:7px; border:none; font-size:13px;" onclick="setDashMode(\'hierarchy\')">🌳 Jerarquía (Drilldown)</button>'
     + '</div>'
     + '</div>';
 }
@@ -1766,6 +1779,8 @@ function renderDashProjectMonthlyMatrix(){
 }
 
 function renderMatrizHeatmap(){
+  const mode = state.dashMode || 'global';
+  if(mode !== 'personas') return '';
   initDashFilters();
 
   const availableYears = getAvailableYears();
@@ -1947,7 +1962,10 @@ function renderDashGlobal(){
   const totalProj = totals.projClient + totals.projAdmin;
   const totalAct = totals.actClient + totals.actAdmin;
 
-  let html = renderDashInsightsBanner();
+  let html = '<div style="display:flex; justify-content:flex-end; margin-bottom:8px;">'
+    + '<span style="font-size:11px; font-weight:700; background:var(--surface); border:1px solid var(--border); padding:3px 10px; border-radius:12px; color:var(--teal); font-family:\'JetBrains Mono\', monospace;">📌 Resumen Global v2.5.0 • 09-Ago 20:35</span>'
+    + '</div>';
+  html += renderDashInsightsBanner();
 
   html += '<div class="section-label">Consolidado General del Portafolio (Horas Hombre)</div>';
 
@@ -2432,6 +2450,119 @@ function deleteEntry(id){
   persistEntries(); renderKPIs(); renderContent(); showToast('Registro eliminado.');
 }
 
+function uploadTimesheetExcel(event){
+  const file = (event && event.target && event.target.files) ? event.target.files[0] : (document.getElementById('bulk_file') ? document.getElementById('bulk_file').files[0] : null);
+  if(!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+
+      let matchedCount = 0;
+      let adminCount = 0;
+      const unmatchedPeople = new Set();
+      const unmatchedProjects = new Set();
+
+      const peopleByName = {};
+      state.people.forEach(p => peopleByName[normalizeStr(p.name)] = p);
+
+      const projectsByPepOrName = {};
+      state.projects.forEach(p => {
+        if(p.pep) projectsByPepOrName[normalizeStr(p.pep)] = p;
+        projectsByPepOrName[normalizeStr(p.name)] = p;
+      });
+
+      workbook.SheetNames.forEach(sheetName => {
+        const personKey = normalizeStr(sheetName);
+        const person = peopleByName[personKey];
+        if(!person){
+          unmatchedPeople.add(sheetName);
+          return;
+        }
+
+        const sheet = workbook.Sheets[sheetName];
+        const jsonRows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        if(!jsonRows || jsonRows.length === 0) return;
+
+        jsonRows.forEach((row, idx) => {
+          if(idx === 0 || !Array.isArray(row) || row.length < 2) return;
+
+          let monthVal = '', projRef = '', hoursVal = 0, noteVal = '';
+
+          for(let i=0; i<row.length; i++){
+            const cellVal = row[i];
+            if(cellVal === undefined || cellVal === null) continue;
+
+            const cellStr = String(cellVal).trim();
+            const normCell = normalizeStr(cellStr);
+
+            if(!monthVal){
+              const pm = parseMonthLabel(cellStr) || (cellStr.match(/^\d{4}-\d{2}$/) ? cellStr : null);
+              if(pm) { monthVal = pm; continue; }
+            }
+
+            if(!hoursVal && typeof cellVal === 'number' && cellVal > 0 && cellVal <= 300){
+              hoursVal = Number(cellVal);
+              continue;
+            }
+
+            if(normCell.includes('admin') || normCell.includes('interna') || normCell.includes('gestion')){
+              projRef = 'admin';
+            } else if(projectsByPepOrName[normCell]){
+              projRef = projectsByPepOrName[normCell].id;
+            } else if(cellStr.length > 2){
+              const foundProj = state.projects.find(p => (p.pep && normalizeStr(p.pep).includes(normCell)) || normalizeStr(p.name).includes(normCell));
+              if(foundProj) projRef = foundProj.id;
+            }
+
+            if(i === row.length-1 && typeof cellVal === 'string' && cellVal.length > 3) noteVal = cellStr;
+          }
+
+          if(!monthVal) monthVal = currentMonth();
+
+          if(projRef === 'admin'){
+            if(hoursVal > 0){
+              state.realEntries.push({
+                id: uid('ent'), category: 'admin', projectId: '', personId: person.id,
+                month: monthVal, hours: hoursVal, note: noteVal || 'Cargado vía Excel',
+                source: 'excel', loggedBy: state.userName, createdAt: Date.now()
+              });
+              adminCount++;
+            }
+          } else if(projRef){
+            if(hoursVal > 0){
+              state.realEntries.push({
+                id: uid('ent'), category: 'project', projectId: projRef, personId: person.id,
+                month: monthVal, hours: hoursVal, note: noteVal || 'Cargado vía Excel',
+                source: 'excel', loggedBy: state.userName, createdAt: Date.now()
+              });
+              matchedCount++;
+            }
+          } else {
+            if(hoursVal > 0 && row.some(c=>c)){
+              unmatchedProjects.add(row.join(' | '));
+            }
+          }
+        });
+      });
+
+      if(matchedCount > 0 || adminCount > 0){
+        persistEntries();
+        renderKPIs();
+        renderContent();
+      }
+
+      showUnmatchedTimesheetModal(matchedCount, adminCount, Array.from(unmatchedPeople), Array.from(unmatchedProjects));
+    } catch(err) {
+      console.error(err);
+      showToast('Error al procesar la planilla Excel.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 // ---------- Omnibox (Buscador Global - Ctrl+K) ----------
 function toggleOmniboxModal(){
   const existing = document.getElementById('omniboxModalOverlay');
@@ -2494,51 +2625,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
-function renderDashGlobal(){
-  const totals = getFilteredTotals();
-  const totalProj = totals.projClient + totals.projAdmin;
-  const totalAct = totals.actClient + totals.actAdmin;
 
-  let html = renderDashInsightsBanner();
-
-  html += '<div class="section-label">Consolidado General del Portafolio (Horas Hombre)</div>';
-
-  html += '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:20px;">'
-    + '<div class="card" style="margin-bottom:0">'
-    + '<div class="card-title" style="font-size:14px; margin-bottom:2px">📂 Proyectos Cliente</div>'
-    + '<div class="card-sub" style="font-size:11.5px; margin-bottom:10px">Planificado vs. Ejecutado en período seleccionado</div>'
-    + gauge(totals.projClient, totals.actClient)
-    + '</div>'
-    + '<div class="card" style="margin-bottom:0">'
-    + '<div class="card-title" style="font-size:14px; margin-bottom:2px">⚙️ Administración Interna</div>'
-    + '<div class="card-sub" style="font-size:11.5px; margin-bottom:10px">Planificado vs. Ejecutado en período seleccionado</div>'
-    + gauge(totals.projAdmin, totals.actAdmin)
-    + '</div>'
-    + '<div class="card" style="margin-bottom:0">'
-    + '<div class="card-title" style="font-size:14px; margin-bottom:2px">📊 Total Consolidado Portafolio</div>'
-    + '<div class="card-sub" style="font-size:11.5px; margin-bottom:10px">Suma Total Portafolio en período seleccionado</div>'
-    + gauge(totalProj, totalAct)
-    + '</div>'
-    + '</div>';
-
-  // Gráficos del Dashboard
-  html += renderDashboardVisualsHeader();
-
-  // Secuencia de 3 Tablas Matrices de Macro a Micro
-  html += renderDashUnidadesComplianceTable();
-  html += renderDashLineasComplianceTable();
-  html += renderDashProjectComplianceTable();
-
-  // Separador de bloque y Matriz Heatmap al final del Dashboard Global
-  html += '<div style="margin-top:28px; margin-bottom:16px; text-align:center; border-bottom:1px dashed var(--border); line-height:0.1em;">'
-    + '<span style="background:var(--bg); padding:0 14px; font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--muted); text-transform:uppercase;">'
-    + '🔥 MATRIZ DE DISPONIBILIDAD Y CARGA DE TRABAJO (HEATMAP)'
-    + '</span>'
-    + '</div>';
-  html += renderMatrizHeatmap();
-
-  return html;
-}
 
 function renderDashboard(){
   if(state.projects.length===0 && state.people.length===0){
@@ -2553,6 +2640,14 @@ function renderDashboard(){
   const timeFilter = renderDashTimeFilterPanel();
 
   if(mode === 'personas') return selector + timeFilter + renderDashAllPeople();
+  if(mode === 'hierarchy'){
+    const nav = state.dashNav || {};
+    if(nav.personId) return selector + timeFilter + renderDashPerson(nav);
+    if(nav.projectId) return selector + timeFilter + renderDashProject(nav);
+    if(nav.linea) return selector + timeFilter + renderDashLinea(nav.unidad, nav.linea);
+    if(nav.unidad) return selector + timeFilter + renderDashUnidad(nav.unidad);
+    return selector + timeFilter + renderDashRoot();
+  }
   return selector + timeFilter + renderDashGlobal();
 }
 
@@ -2717,12 +2812,17 @@ function renderConfig(){
     '<tr><td>'+l.nombre+'</td><td>'+(l.unidad||'<span class="muted">Sin unidad</span>')+'</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="openLineaModal(\''+l.nombre+'\')">Editar</button><button class="btn btn-ghost btn-sm" onclick="deleteLineaNegocio(\''+l.nombre+'\')">Eliminar</button></td></tr>'
   ).join('');
 
+  const roleNames = Object.keys(cfg.roleRates||{});
+  const roleRows = roleNames.map(r=>
+    '<tr><td><b>'+r+'</b></td><td class="mono">'+fmtMoney(cfg.roleRates[r])+'/h</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="openRoleModal(\''+r+'\')">Editar</button><button class="btn btn-ghost btn-sm" onclick="deleteRole(\''+r+'\')">Eliminar</button></td></tr>'
+  ).join('');
+
   const peopleRows = state.people.map(p=>
     '<tr><td><b>'+p.name+'</b></td><td>'+(p.lineaNegocio||'<span class="muted">Sin línea</span>')+'</td><td>'+p.role+'</td>'
     + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="openPersonModalGlobal(\''+p.id+'\')">Editar</button><button class="btn btn-ghost btn-sm" onclick="deleteGlobalPerson(\''+p.id+'\')">Eliminar</button></td></tr>'
   ).join('');
 
-  const backupCard = '<div class="card" style="border:1px solid #DCE1F0; background:#F8F9FD;">'
+  const backupCard = '<div class="card" style="border:1px solid #DCE1F0; background:var(--surface);">'
     + '<div class="card-header"><div class="card-title">💾 Respaldos de Datos (Backup & Restore)</div></div>'
     + '<p class="muted" style="font-size:12.5px; margin-bottom:12px">Puedes descargar una copia de seguridad en formato JSON con todo el portafolio (proyectos, equipo, configuración y registros reales) o restaurarla en cualquier momento.</p>'
     + '<div style="display:flex; gap:10px; flex-wrap:wrap;">'
@@ -2730,13 +2830,27 @@ function renderConfig(){
     + '<label class="btn btn-secondary btn-sm" style="margin-bottom:0; cursor:pointer;">📤 Cargar Respaldo JSON<input type="file" accept=".json" style="display:none" onchange="uploadJSONBackup(event)"></label>'
     + '</div></div>';
 
+  const capacityCard = '<div class="card">'
+    + '<div class="card-header"><div class="card-title">⚙️ Parámetros de Capacidad y Metas</div></div>'
+    + '<div class="form-grid">'
+    + '<div class="field"><label>Capacidad Mensual Base (HH)</label><input id="cfg_capacity" type="number" min="1" value="'+(cfg.monthlyCapacity||180)+'"></div>'
+    + '<div class="field"><label>Meta Proyectos Cliente (%)</label><input id="cfg_targetProject" type="number" min="0" max="100" value="'+(cfg.targetProjectPct||80)+'"></div>'
+    + '<div class="field"><label>Meta Admin Interna (%)</label><input id="cfg_targetAdmin" type="number" min="0" max="100" value="'+(cfg.targetAdminPct||20)+'"></div>'
+    + '</div>'
+    + '<div style="margin-top:14px; display:flex; justify-content:flex-end;"><button class="btn btn-primary btn-sm" onclick="saveCapacityConfig()">Guardar Parámetros</button></div>'
+    + '</div>';
+
   return backupCard
+    + capacityCard
     + '<div class="card"><div class="card-header"><div class="card-title">Unidades de Negocio</div><button class="btn btn-secondary btn-sm" onclick="openUnidadModal()">+ Agregar unidad</button></div>'
     + ((cfg.unidades||[]).length ? '<table><thead><tr><th>Nombre</th><th></th></tr></thead><tbody>'+unidadRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin unidades configuradas (ej: CircularHR, Expande).</p>')
     + '</div>'
     + '<div class="card"><div class="card-header"><div class="card-title">Líneas de Negocio</div><button class="btn btn-secondary btn-sm" onclick="openLineaModal()">+ Agregar línea</button></div>'
     + ((cfg.lineasNegocio||[]).length ? '<table><thead><tr><th>Nombre</th><th>Unidad</th><th></th></tr></thead><tbody>'+lineaRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin líneas de negocio configuradas.</p>')
     + '<p class="muted" style="font-size:12px; margin-top:10px">Cada línea de negocio pertenece a una unidad. Crea primero las unidades.</p></div>'
+    + '<div class="card"><div class="card-header"><div class="card-title">Catálogo de Roles y Tarifas CLP</div><button class="btn btn-secondary btn-sm" onclick="openRoleModal()">+ Agregar rol</button></div>'
+    + (roleNames.length ? '<table><thead><tr><th>Rol</th><th>Tarifa Estándar</th><th></th></tr></thead><tbody>'+roleRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin roles configurados en catálogo.</p>')
+    + '</div>'
     + '<div class="card"><div class="card-header"><div><div class="card-title">Equipo</div></div><button class="btn btn-secondary btn-sm" onclick="openPersonModalGlobal()">+ Agregar persona</button></div>'
     + (state.people.length ? '<table><thead><tr><th>Nombre</th><th>Línea de Negocio</th><th>Rol</th><th></th></tr></thead><tbody>'+peopleRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin personas registradas. Agrégalas para poder asignarlas a proyectos.</p>')
     + '</div>';

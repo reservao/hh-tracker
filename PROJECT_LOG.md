@@ -28,10 +28,18 @@
 - **TopBar con Distintivo Oficial**:
   - `CIRCULAR HR | Fundación Chile` en la cabecera.
 
-### [2026-08-09] - Reorganización del Dashboard: Matriz Heatmap a "Todo el Equipo"
-- **Redistribución de Componentes**:
-  - **`🌐 Resumen Global`**: Se removió el Heatmap de personas para mantener la pestaña 100% enfocada en métricas macro del portafolio (Consolidado, 9 Gráficos, Matriz por Unidad, Matriz por Línea y Matriz de Cumplimiento por Proyecto).
-  - **`👥 Todo el Equipo`**: Se ubicó en la parte superior la **`🔥 Matriz de Carga y Disponibilidad (% Ocupación Real vs. Capacidad)`** por integrante, seguida del bloque de Cards Individuales del Equipo.
+### [2026-08-09] - Separación Estricta: Resumen Ejecutivo Global vs. Matriz Mensual (Heatmap)
+- **`🌐 Resumen Global`**:
+  - Queda **100% como resumen ejecutivo macro**:
+    1. Consolidado general y gauges.
+    2. Suite de 9 gráficos analíticos por línea y unidad.
+    3. Matriz resumida por Unidad de Negocio.
+    4. Matriz resumida por Línea de Negocio.
+    5. **Matriz Ejecutiva por Proyecto** (`Proyecto | Cliente | Tipo | Meses (Trans/Total) | HH Proyectadas | HH Reales | % Cumplimiento`), **sin columnas mensuales `Ene..Dic`**.
+- **`👥 Todo el Equipo`**:
+  - Contiene de manera exclusiva el desglose mes a mes:
+    1. **`🔥 Matriz de Carga y Disponibilidad (% Ocupación Real vs. Capacidad)`** con la grilla mensual transversal `Ene..Dic`.
+    2. Bloque de cards individuales por integrante del equipo.
 
 ---
 
