@@ -67,27 +67,9 @@ input, select, textarea{ font-family:inherit; font-size:14px; color:var(--text);
 .topbar h1{ font-size:24px; font-weight:700; letter-spacing:-0.02em; }
 .topbar .subtitle{ color:#B9C0E0; font-size:13.5px; margin-top:4px; }
 
-.quick-timer-bar{
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(8px);
-  border-radius: 12px;
-  padding: 10px 16px;
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.quick-timer-display{
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 18px;
-  font-weight: 700;
-  color: #5FE3CC;
-  min-width: 80px;
-}
 
-.kpi-strip{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-top:22px; }
+
+.kpi-strip{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:22px; }
 .kpi{ background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:var(--radius); padding:12px 14px; }
 .kpi .kpi-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#A9B1D6; }
 .kpi .kpi-value{ font-size:20px; font-weight:600; margin-top:4px; font-family:'JetBrains Mono', monospace; }
@@ -199,7 +181,6 @@ td.mono, th.num{ text-align:right; }
   .card-title { font-size: 15px; }
   
   .kpi-strip { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
-  .kpi:last-child { grid-column: span 2; }
   .kpi { padding: 10px 12px; }
   .kpi .kpi-value { font-size: 17px; }
   
@@ -232,7 +213,7 @@ td.mono, th.num{ text-align:right; }
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap">
       <div class="expand-toggle" onclick="switchMainView('dashboard')">
         <h1>HH Tracker</h1>
-        <div class="subtitle">Monitoreo de horas hombre por proyecto, persona y rol — proyectado vs. real</div>
+        <div class="subtitle">Monitoreo de horas hombre por proyecto y persona — proyectado vs. real</div>
       </div>
       <div style="display:flex; gap:8px" id="topNavButtons"></div>
     </div>
@@ -267,9 +248,9 @@ td.mono, th.num{ text-align:right; }
 // ---------- State ----------
 let state = {
   projects: [],      // {id,name,client,status,startMonth,endMonth,assignments:[{personId,projectedByMonth:{'YYYY-MM':hrs}}]}
-  people: [],         // {id,name,role,rateOverride,capacityOverride}
+  people: [],         // {id,name,role,capacityOverride}
   realEntries: [],    // {id,category:'project'|'admin',projectId,personId,month,hours,note,source,loggedBy,createdAt}
-  config: {roleRates:{}, targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180},
+  config: {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180},
   mainView: 'dashboard',
   hhSubTab: 'proyectos',
   dashMode: 'global', // 'global' | 'hierarchy' | 'unidades' | 'lineas' | 'proyectos' | 'personas'
@@ -312,7 +293,7 @@ function parseMonthLabel(label){ // 'marzo 2026' / 'MarzO   2026' / 'Marzo, 2026
 }
 
 // ---------- Storage (Firebase Firestore) ----------
-function defaultConfig(){ return {roleRates:{}, unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180}; }
+function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180}; }
 function migrateConfigShape(){
   if(!state.config.unidades) state.config.unidades=[];
   if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
@@ -336,16 +317,15 @@ function projectsForPeopleIds(personIds){
   return state.projects.filter(p=>(p.assignments||[]).some(a=>personIds.has(a.personId)));
 }
 function projectTotalsForPeople(project, personIds){
-  let projectedHours=0, actualHours=0, projectedCost=0, actualCost=0;
+  let projectedHours=0, actualHours=0;
   (project.assignments||[]).forEach(a=>{
     if(personIds && !personIds.has(a.personId)) return;
     const person = getPerson(a.personId); if(!person) return;
     const proj = assignmentProjectedTotal(a);
     const act = projectRealHoursForPerson(project.id, a.personId);
-    const rate = personRate(person);
-    projectedHours += proj; actualHours += act; projectedCost += proj*rate; actualCost += act*rate;
+    projectedHours += proj; actualHours += act;
   });
-  return {projectedHours, actualHours, projectedCost, actualCost};
+  return {projectedHours, actualHours};
 }
 
 const firebaseConfig = {
@@ -420,10 +400,9 @@ function migrateProjectPeople(){
         let gid = nameToId[key];
         if(!gid){
           gid = uid('pers');
-          state.people.push({id:gid, name:op.name, role:op.role||'Consultor', rateOverride:(op.rate!=null?op.rate:null), capacityOverride:null});
+          state.people.push({id:gid, name:op.name, role:op.role||'Consultor', capacityOverride:null});
           nameToId[key] = gid;
         }
-        if(op.role && !state.config.roleRates.hasOwnProperty(op.role)) state.config.roleRates[op.role] = op.rate||0;
         const pbm = {};
         if(op.projectedHours) pbm[currentMonth()] = op.projectedHours;
         proj.assignments.push({personId:gid, projectedByMonth:pbm, _oldId:op.id});
@@ -446,7 +425,7 @@ async function persistUserName(name){ localStorage.setItem('hh_username', name |
 // ---------- Helpers ----------
 function uid(prefix){ return prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function fmtH(n){ return new Intl.NumberFormat('es-CL',{maximumFractionDigits:1}).format(n||0); }
-function fmtMoney(n){ return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(Math.round(n||0)); }
+
 function currentMonth(){ return new Date().toISOString().slice(0,7); }
 function fmtMonth(m){ if(!m) return '—'; const parts=m.split('-'); return MONTHS_ES[parseInt(parts[1],10)-1] + ' ' + parts[0]; }
 function monthRange(start,end){
@@ -488,8 +467,7 @@ function ratioColor(ratio){
   return 'var(--amber)';
 }
 function getPerson(id){ return state.people.find(p=>p.id===id); }
-function roleRate(role){ return Number(state.config.roleRates[role]||0); }
-function personRate(person){ if(!person) return 0; return (person.rateOverride!=null && person.rateOverride!=='') ? Number(person.rateOverride) : roleRate(person.role); }
+
 function personCapacity(person){ if(!person) return Number(state.config.monthlyCapacity||180); return (person.capacityOverride!=null && person.capacityOverride!=='') ? Number(person.capacityOverride) : Number(state.config.monthlyCapacity||180); }
 function personTargetProjectPct(person){ if(!person) return Number(state.config.targetProjectPct||80); return (person.targetProjectPctOverride!=null && person.targetProjectPctOverride!=='') ? Number(person.targetProjectPctOverride) : Number(state.config.targetProjectPct||80); }
 function personTargetAdminPct(person){ if(!person) return Number(state.config.targetAdminPct||20); return (person.targetAdminPctOverride!=null && person.targetAdminPctOverride!=='') ? Number(person.targetAdminPctOverride) : Number(state.config.targetAdminPct||20); }
@@ -571,20 +549,17 @@ function renderAll(){ renderKPIs(); renderContent(); }
 function renderKPIs(){
   const el = document.getElementById('kpiStrip');
   const activeProjects = state.projects.filter(p=>p.status==='activo').length;
-  let totalProj=0, totalAct=0, totalProjCost=0, totalActCost=0;
+  let totalProj=0, totalAct=0;
   state.projects.forEach(p=>{
     const t = projectTotals(p);
-    totalProj+=t.projectedHours; totalAct+=t.actualHours; totalProjCost+=t.projectedCost; totalActCost+=t.actualCost;
+    totalProj+=t.projectedHours; totalAct+=t.actualHours;
   });
-  const dev = totalActCost - totalProjCost;
-  const devClass = dev>0 ? 'red' : 'teal';
   const avance = totalProj>0 ? ((totalAct/totalProj)*100).toFixed(0)+'%' : '—';
   el.innerHTML = ''
     + '<div class="kpi"><div class="kpi-label">Proyectos activos</div><div class="kpi-value">'+activeProjects+'</div></div>'
     + '<div class="kpi"><div class="kpi-label">HH proyectadas</div><div class="kpi-value">'+fmtH(totalProj)+'</div></div>'
     + '<div class="kpi"><div class="kpi-label">HH reales</div><div class="kpi-value teal">'+fmtH(totalAct)+'</div></div>'
-    + '<div class="kpi"><div class="kpi-label">Avance portafolio</div><div class="kpi-value">'+avance+'</div></div>'
-    + '<div class="kpi"><div class="kpi-label">Desviación costo</div><div class="kpi-value '+devClass+'">'+(dev>0?'+':'')+fmtMoney(dev)+'</div></div>';
+    + '<div class="kpi"><div class="kpi-label">Avance portafolio</div><div class="kpi-value">'+avance+'</div></div>';
 }
 
 function setDashMode(mode){
@@ -1331,10 +1306,9 @@ function exportFullReportExcel(){
     const wb = XLSX.utils.book_new();
 
     // Tab 1: Proyectos
-    const projHeaders = ['PEP', 'Nombre Proyecto', 'Cliente', 'Estado', 'Fecha Inicio', 'Fecha Cierre', 'Monto Adjudicado (CLP)', 'HH Proyectadas', 'HH Reales', 'Avance %', 'Costo Proyectado (CLP)', 'Costo Real (CLP)', 'Desviacion Costo (CLP)'];
+    const projHeaders = ['PEP', 'Nombre Proyecto', 'Cliente', 'Estado', 'Fecha Inicio', 'Fecha Cierre', 'HH Proyectadas', 'HH Reales', 'Avance %'];
     const projRows = state.projects.map(p => {
       const t = projectTotals(p);
-      const dev = t.actualCost - t.projectedCost;
       const pct = t.projectedHours > 0 ? Math.round((t.actualHours / t.projectedHours) * 100) + '%' : '—';
       return [
         p.pep || '',
@@ -1343,20 +1317,16 @@ function exportFullReportExcel(){
         p.status,
         p.fechaInicio || '',
         p.fechaCierre || '',
-        p.montoAdjudicacion || 0,
         t.projectedHours,
         t.actualHours,
-        pct,
-        t.projectedCost,
-        t.actualCost,
-        dev
+        pct
       ];
     });
     const wsProj = XLSX.utils.aoa_to_sheet([projHeaders].concat(projRows));
     XLSX.utils.book_append_sheet(wb, wsProj, 'Resumen Proyectos');
 
     // Tab 2: Equipo
-    const teamHeaders = ['Nombre', 'Línea de Negocio', 'Unidad', 'Rol', 'Tarifa/h (CLP)', 'Capacidad Mensual (h)', 'Total HH Proyectadas', 'Total HH Reales'];
+    const teamHeaders = ['Nombre', 'Línea de Negocio', 'Unidad', 'Rol', 'Capacidad Mensual (h)', 'Total HH Proyectadas', 'Total HH Reales'];
     const teamRows = state.people.map(p => {
       let totalProj = 0, totalAct = 0;
       state.projects.forEach(pr => {
@@ -1372,7 +1342,6 @@ function exportFullReportExcel(){
         p.lineaNegocio || '',
         getUnidadForLinea(p.lineaNegocio),
         p.role,
-        personRate(p),
         personCapacity(p),
         totalProj,
         totalAct
@@ -1452,17 +1421,11 @@ function renderDashAllProjects(){
     const t = projectTotals(p);
     const sm = statusMeta(p.status);
     const periodo = p.startMonth ? ' · '+fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : '';
-    const devCost = t.actualCost - t.projectedCost;
     return '<div class="card expand-toggle" onclick="dashGoto({projectId:\''+p.id+'\'})">'
       + '<div class="card-header"><div><div class="card-title">'+p.name+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
       + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+periodo+'</div></div>'
       + '<span class="link-btn">Ver Detalle ▶</span></div>'
       + '<div style="max-width:520px">'+gauge(t.projectedHours, t.actualHours)+'</div>'
-      + '<div style="display:flex; gap:18px; margin-top:10px; font-size:12px;" class="muted">'
-      + '<span>$ Proyectado: <b class="mono" style="color:var(--text)">'+fmtMoney(t.projectedCost)+'</b></span>'
-      + '<span>$ Real: <b class="mono" style="color:var(--text)">'+fmtMoney(t.actualCost)+'</b></span>'
-      + '<span>Desviación: <b class="mono" style="color:'+(devCost>0?'var(--red)':'var(--teal)')+'">'+(devCost>0?'+':'')+fmtMoney(devCost)+'</b></span>'
-      + '</div>'
       + '</div>';
   }).join('');
   return html;
@@ -1488,14 +1451,13 @@ function renderDashAllPeople(){
       + '<td><b>'+p.name+'</b></td>'
       + '<td>'+(p.lineaNegocio||'<span class="muted">Sin línea</span>')+'</td>'
       + '<td>'+p.role+'</td>'
-      + '<td class="mono" style="text-align:right">'+fmtMoney(personRate(p))+'/h</td>'
       + '<td class="mono" style="text-align:right">'+fmtH(totalProj)+' h</td>'
       + '<td class="mono" style="text-align:right">'+fmtH(totalAct)+' h</td>'
       + '<td style="min-width:180px">'+gauge(totalProj, totalAct)+'</td>'
       + '</tr>';
   }).join('');
 
-  html += '<div class="card"><table><thead><tr><th>Nombre</th><th>Línea de Negocio</th><th>Rol</th><th class="num">Tarifa/h</th><th class="num">Total Proyectadas</th><th class="num">Total Reales</th><th>Consumo</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  html += '<div class="card"><table><thead><tr><th>Nombre</th><th>Línea de Negocio</th><th>Rol</th><th class="num">Total Proyectadas</th><th class="num">Total Reales</th><th>Consumo</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   
   // Separador de bloque y Matriz Heatmap en la vista de Todo el Equipo
   html += '<div style="margin-top:28px; margin-bottom:16px; text-align:center; border-bottom:1px dashed var(--border); line-height:0.1em;">'
@@ -2092,7 +2054,7 @@ function toggleAlertsDrawer(){
       }
     });
     if(pProjH > 0 && pActH > pProjH * 1.1){
-      alerts.push({ type:'red', text: '<b>' + p.name + '</b>: Sobrecosto de HH (' + fmtH(pActH) + 'h ejec. vs ' + fmtH(pProjH) + 'h proy.)' });
+      alerts.push({ type:'red', text: '<b>' + p.name + '</b>: Sobreejecución de HH (' + fmtH(pActH) + 'h ejec. vs ' + fmtH(pProjH) + 'h proy.)' });
     } else if(pProjH === 0 && pActH > 0){
       alerts.push({ type:'amber', text: '<b>' + p.name + '</b>: ' + fmtH(pActH) + 'h ejecutadas sin proyección previa.' });
     }
@@ -2269,14 +2231,6 @@ function renderDashGlobal(){
   html += renderDashLineasComplianceTable();
   html += renderDashProjectComplianceTable();
 
-  // Separador de bloque y Matriz Heatmap al final del Dashboard Global
-  html += '<div style="margin-top:28px; margin-bottom:16px; text-align:center; border-bottom:1px dashed var(--border); line-height:0.1em;">'
-    + '<span style="background:var(--bg); padding:0 14px; font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--muted); text-transform:uppercase;">'
-    + '🔥 MATRIZ DE DISPONIBILIDAD Y CARGA DE TRABAJO (HEATMAP)'
-    + '</span>'
-    + '</div>';
-  html += renderMatrizHeatmap();
-
   return html;
 }
 
@@ -2355,23 +2309,13 @@ function renderDashProyecto(){
   if(!p) return '<div class="card"><div class="empty">Proyecto no encontrado.</div></div>';
   const t = projectTotals(p);
   const sm = statusMeta(p.status);
-  const devCost = t.actualCost - t.projectedCost;
   const periodo = p.startMonth ? fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : 'Sin período';
-  const montoLine = p.montoAdjudicacion!=null
-    ? '<span>Adjudicado: <b class="mono" style="color:var(--text)">'+fmtMoney(p.montoAdjudicacion)+'</b></span>'
-      + '<span>% consumido: <b class="mono" style="color:'+(p.montoAdjudicacion>0 && (t.actualCost/p.montoAdjudicacion)>1 ? 'var(--red)':'var(--text)')+'">'+(p.montoAdjudicacion>0? (t.actualCost/p.montoAdjudicacion*100).toFixed(0)+'%':'—')+'</b></span>'
-    : '';
 
   let html = '<div class="card">'
     + '<div class="card-title">'+p.name+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
     + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+' · '+periodo+'</div>'
     + '<div style="max-width:520px; margin-top:12px">'+gauge(t.projectedHours, t.actualHours)+'</div>'
-    + '<div style="display:flex; gap:22px; margin-top:12px; font-size:12.5px; flex-wrap:wrap" class="muted">'
-    + '<span>$ proyectado: <b class="mono" style="color:var(--text)">'+fmtMoney(t.projectedCost)+'</b></span>'
-    + '<span>$ real: <b class="mono" style="color:var(--text)">'+fmtMoney(t.actualCost)+'</b></span>'
-    + '<span>Desviación: <b class="mono" style="color:'+(devCost>0?'var(--red)':'var(--teal)')+'">'+(devCost>0?'+':'')+fmtMoney(devCost)+'</b></span>'
-    + montoLine
-    + '</div></div>';
+    + '</div>';
 
   const assignments = p.assignments||[];
   if(assignments.length===0){
@@ -2396,7 +2340,6 @@ function renderDashProyecto(){
     const proj = assignmentProjectedTotal(a);
     return '<div class="person-row expand-toggle" onclick="dashGoto({unidad:\''+(state.dashNav.unidad||'')+'\',linea:\''+(state.dashNav.linea||'')+'\',projectId:\''+p.id+'\',personId:\''+person.id+'\'})">'
       + '<div><div class="person-name">'+person.name+'</div><div class="person-role">'+person.role+'</div></div>'
-      + '<div class="muted mono" style="font-size:12.5px">'+fmtMoney(personRate(person))+'/h</div>'
       + '<div>'+gauge(proj, act)+'</div><div class="link-btn">Ver ▶</div>'
       + '</div>';
   }).join('');
@@ -2428,7 +2371,7 @@ function renderDashPersona(){
 
   return '<div class="card">'
     + '<div class="card-title">'+person.name+'</div>'
-    + '<div class="card-sub">'+person.role+' · '+(person.lineaNegocio||'Sin línea')+' · '+fmtMoney(personRate(person))+'/h</div>'
+    + '<div class="card-sub">'+person.role+' · '+(person.lineaNegocio||'Sin línea')+'</div>'
     + '<div style="max-width:520px; margin-top:12px">'+gauge(proj, act)+'</div>'
     + '</div>'
     + '<div class="card"><div class="section-label" style="margin-top:0">Tendencia mensual en este proyecto</div>'
@@ -2524,7 +2467,6 @@ function renderPeopleManager(p){
     return '<tr>'
       + '<td>'+person.name+'</td>'
       + '<td>'+person.role+'</td>'
-      + '<td class="mono" style="text-align:right">'+fmtMoney(personRate(person))+'</td>'
       + '<td class="mono" style="text-align:right">'+fmtH(proj)+'</td>'
       + '<td class="mono" style="text-align:right">'+fmtH(act)+'</td>'
       + '<td style="text-align:right">'
@@ -2538,7 +2480,7 @@ function renderPeopleManager(p){
     : '<span class="muted" style="font-size:12px; align-self:center">Define mes inicio/término (botón Editar) para habilitar la carga de proyección.</span>';
   return '<div class="section-label">Personas asignadas</div>'
     + ((p.assignments||[]).length
-        ? '<table><thead><tr><th>Nombre</th><th>Rol</th><th class="num">Tarifa/h</th><th class="num">HH proyectadas</th><th class="num">HH reales</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
+        ? '<table><thead><tr><th>Nombre</th><th>Rol</th><th class="num">HH proyectadas</th><th class="num">HH reales</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
         : '<p class="muted" style="font-size:13px; margin-bottom:8px">Sin personas aún.</p>')
     + '<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">'
     + excelBlock
@@ -2672,13 +2614,12 @@ function downloadProjectionTemplate(projectId){
   const wsProj = XLSX.utils.aoa_to_sheet([headerProj].concat(rowsProj));
 
   // Hoja 2: Todas las Personas (Catálogo completo de referencia)
-  const headerCat = ['Nombre Completo', 'Línea de Negocio', 'Unidad de Negocio', 'Rol', 'Tarifa HH (CLP)'];
+  const headerCat = ['Nombre Completo', 'Línea de Negocio', 'Unidad de Negocio', 'Rol'];
   const rowsCat = state.people.map(person => [
     person.name,
     person.lineaNegocio || 'Sin línea',
     getUnidadForLinea(person.lineaNegocio) || 'Sin unidad',
-    person.role,
-    personRate(person)
+    person.role
   ]);
   const wsCat = XLSX.utils.aoa_to_sheet([headerCat].concat(rowsCat));
 
@@ -2750,6 +2691,20 @@ function uploadProjectionExcel(evt, projectId){
 }
 
 // ---------- Cargar Horas ----------
+function toggleCargarGroup(groupKey){
+  if(!state.expandedCargarGroups) state.expandedCargarGroups = {};
+  state.expandedCargarGroups[groupKey] = !state.expandedCargarGroups[groupKey];
+  renderContent();
+}
+
+function deleteGroupEntries(personId, month){
+  const person = getPerson(personId);
+  const name = person ? person.name : 'esta persona';
+  if(!confirm('¿Eliminar todos los registros de horas de '+name+' para '+fmtMonth(month)+'?')) return;
+  state.realEntries = state.realEntries.filter(e => !(e.personId === personId && e.month === month));
+  persistEntries(); renderKPIs(); renderContent(); showToast('Cargas del mes eliminadas.');
+}
+
 function renderCargar(){
   if(state.people.length===0){
     return '<div class="card"><div class="empty"><div class="display">Primero registra a tu equipo</div>'
@@ -2759,25 +2714,101 @@ function renderCargar(){
 
   const filterOpts = '<option value="all">Todos los meses</option>' + lastMonthsDesc(12).map(m=>'<option value="'+m+'" '+(state.entryFilterMonth===m?'selected':'')+'>'+fmtMonth(m)+'</option>').join('');
 
-  const entries = state.realEntries
-    .filter(e => state.entryFilterMonth==='all' || e.month===state.entryFilterMonth)
-    .sort((a,b)=> b.month.localeCompare(a.month) || b.createdAt-a.createdAt)
-    .slice(0,80);
+  // 1. Filtrar los registros reales según el mes seleccionado
+  const filteredEntries = state.realEntries.filter(e => state.entryFilterMonth==='all' || e.month===state.entryFilterMonth);
 
-  const rows = entries.map(e=>{
-    const person = getPerson(e.personId);
-    const proj = e.projectId ? state.projects.find(p=>p.id===e.projectId) : null;
-    const projLabel = e.category==='admin' ? '<span class="chip">Administración</span>' : (proj?proj.name:'<span class="muted">Proyecto eliminado</span>');
-    return '<tr>'
-      + '<td>'+fmtMonth(e.month)+'</td>'
-      + '<td>'+projLabel+'</td>'
-      + '<td>'+(person?person.name:'<span class="muted">—</span>')+'</td>'
-      + '<td>'+(person?person.role:'—')+'</td>'
-      + '<td class="mono" style="text-align:right">'+fmtH(e.hours)+'</td>'
-      + '<td class="muted" style="font-size:12.5px">'+(e.note||'')+'</td>'
-      + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteEntry(\''+e.id+'\')">Eliminar</button></td>'
-      + '</tr>';
-  }).join('');
+  // 2. Agrupar por Persona + Mes
+  const groupsMap = {};
+
+  filteredEntries.forEach(e => {
+    const key = e.personId + '_' + e.month;
+    if(!groupsMap[key]){
+      const person = getPerson(e.personId);
+      groupsMap[key] = {
+        key,
+        personId: e.personId,
+        personName: person ? person.name : 'Persona eliminada',
+        personRole: person ? person.role : '—',
+        personLinea: person ? (person.lineaNegocio || '') : '',
+        month: e.month,
+        entries: [],
+        totalHours: 0,
+        projCount: 0,
+        adminCount: 0
+      };
+    }
+    groupsMap[key].entries.push(e);
+    groupsMap[key].totalHours += Number(e.hours || 0);
+    if(e.category === 'admin') groupsMap[key].adminCount++;
+    else groupsMap[key].projCount++;
+  });
+
+  const groups = Object.values(groupsMap).sort((a,b) => b.month.localeCompare(a.month) || a.personName.localeCompare(b.personName));
+
+  if(!state.expandedCargarGroups) state.expandedCargarGroups = {};
+
+  let groupsHtml = '';
+
+  if(groups.length === 0){
+    groupsHtml = '<div class="card"><p class="muted" style="font-size:13px; text-align:center; padding:30px 0;">Sin cargas de horas registradas para el filtro seleccionado.</p></div>';
+  } else {
+    groupsHtml = groups.map(g => {
+      const isExpanded = !!state.expandedCargarGroups[g.key];
+
+      let projBadgeText = '';
+      if(g.projCount > 0 && g.adminCount > 0){
+        projBadgeText = g.projCount + ' proyecto(s) · ' + g.adminCount + ' admin';
+      } else if(g.projCount > 0){
+        projBadgeText = g.projCount + ' proyecto(s)';
+      } else {
+        projBadgeText = g.adminCount + ' tarea(s) admin';
+      }
+
+      // Detalle desplegable
+      const subRows = g.entries.map(e => {
+        const proj = e.projectId ? state.projects.find(p=>p.id===e.projectId) : null;
+        const projLabel = e.category==='admin'
+          ? '<span class="chip">⚙️ Administración</span>'
+          : (proj ? '<b>'+proj.name+'</b>' + (proj.pep ? ' <span class="chip" style="font-size:11px">PEP '+proj.pep+'</span>' : '') : '<span class="muted">Proyecto eliminado</span>');
+
+        return '<tr>'
+          + '<td style="padding-left:16px">' + projLabel + '</td>'
+          + '<td class="mono" style="text-align:right; font-weight:600">' + fmtH(e.hours) + ' h</td>'
+          + '<td class="muted" style="font-size:12.5px">' + (e.note || '<span class="muted">—</span>') + '</td>'
+          + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteEntry(\''+e.id+'\')">Eliminar</button></td>'
+          + '</tr>';
+      }).join('');
+
+      const detailTable = '<div style="margin-top:12px; border-top:1px solid var(--border); padding-top:10px;">'
+        + '<table style="width:100%; font-size:13px;">'
+        + '<thead><tr><th style="padding-left:16px">Proyecto / Detalle PEP</th><th class="num">Horas</th><th>Nota</th><th style="text-align:right">Acción</th></tr></thead>'
+        + '<tbody>' + subRows + '</tbody>'
+        + '</table>'
+        + '<div style="display:flex; justify-content:flex-end; margin-top:10px; padding-top:6px;">'
+        + '<button class="btn btn-ghost btn-sm" style="color:var(--red); font-size:12px" onclick="deleteGroupEntries(\''+g.personId+'\', \''+g.month+'\')">🗑️ Eliminar todas las cargas de '+g.personName+' en '+fmtMonth(g.month)+'</button>'
+        + '</div>'
+        + '</div>';
+
+      return '<div class="card" style="margin-bottom:12px; border:1px solid var(--border); padding:16px; border-radius:10px;">'
+        + '<div class="expand-toggle" onclick="toggleCargarGroup(\''+g.key+'\')" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">'
+        + '<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">'
+        + '<span class="badge" style="background:var(--navy-dark); color:#fff; font-size:12px; font-weight:700; padding:4px 10px; border-radius:6px;">📅 ' + fmtMonth(g.month) + '</span>'
+        + '<div>'
+        + '<strong style="font-size:15px; color:var(--text);">' + g.personName + '</strong>'
+        + '<span class="muted" style="font-size:12.5px; margin-left:8px">(' + g.personRole + (g.personLinea ? ' · ' + g.personLinea : '') + ')</span>'
+        + '</div>'
+        + '</div>'
+
+        + '<div style="display:flex; align-items:center; gap:14px; margin-left:auto;">'
+        + '<span class="chip" style="font-weight:600; font-size:12px; background:var(--bg);">' + projBadgeText + '</span>'
+        + '<span class="mono" style="font-size:15px; font-weight:700; color:var(--teal); background:var(--teal-bg); padding:4px 10px; border-radius:6px;">' + fmtH(g.totalHours) + ' h</span>'
+        + '<span class="link-btn" style="font-size:13px; font-weight:700; min-width:110px; text-align:right;">' + (isExpanded ? '▲ Ocultar' : '▼ Ver Proyectos (' + g.entries.length + ')') + '</span>'
+        + '</div>'
+        + '</div>'
+        + (isExpanded ? detailTable : '')
+        + '</div>';
+    }).join('');
+  }
 
   return '<div class="card">'
     + '<div class="card-title" style="margin-bottom:6px">Carga de planilla de horas consolidadas (formato de la empresa)</div>'
@@ -2787,12 +2818,10 @@ function renderCargar(){
     + '</div>'
     + '<div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="uploadTimesheetExcel()">Cargar archivo</button></div>'
     + '</div>'
-    + '<div class="card">'
-    + '<div class="filter-bar"><div class="card-title" style="margin-right:auto">Registros consolidados recientes</div>'
+    + '<div style="margin-top:20px;">'
+    + '<div class="filter-bar" style="margin-bottom:14px;"><div class="card-title" style="margin-right:auto; font-size:16px;">📦 Cargas Consolidadas por Persona y Mes</div>'
     + '<select id="entryFilter" onchange="state.entryFilterMonth=this.value; renderContent();" style="padding:7px 10px; border:1px solid var(--border); border-radius:7px">'+filterOpts+'</select></div>'
-    + (entries.length
-        ? '<table><thead><tr><th>Mes</th><th>Proyecto</th><th>Persona</th><th>Rol</th><th class="num">Horas</th><th>Nota</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
-        : '<p class="muted" style="font-size:13px">Sin registros todavía.</p>')
+    + groupsHtml
     + '</div>';
 }
 
@@ -3041,24 +3070,50 @@ function addRealEntryHours(category, projectId, personId, month, hours){
 
 function parseMonthFromCell(cell){
   if(cell == null || cell === '') return null;
+  
+  // 1. Date Objects (SheetJS)
   if(cell instanceof Date && !isNaN(cell.getTime())){
-    return cell.toISOString().slice(0, 7);
+    const y = cell.getUTCFullYear();
+    const m = String(cell.getUTCMonth() + 1).padStart(2, '0');
+    return y + '-' + m;
   }
+  
+  // 2. Excel Serial Numbers (e.g. 46204..46234 for July 2026)
   const num = Number(cell);
   if(!isNaN(num) && num > 35000 && num < 70000){
     const utcDays = Math.floor(num - 25569);
     const dateObj = new Date(utcDays * 86400 * 1000);
     if(!isNaN(dateObj.getTime())){
-      return dateObj.toISOString().slice(0, 7);
+      const y = dateObj.getUTCFullYear();
+      const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      return y + '-' + m;
     }
   }
+  
+  // 3. Strings
   if(typeof cell === 'string'){
     const str = cell.trim();
     const parsedLabel = parseMonthLabel(str);
     if(parsedLabel) return parsedLabel;
-    const d = new Date(str);
-    if(!isNaN(d.getTime()) && d.getFullYear() > 2000 && d.getFullYear() < 2100){
-      return d.toISOString().slice(0, 7);
+    
+    // Formato latino DD/MM/YYYY o DD-MM-YYYY (ej. 08/07/2026 -> 2026-07)
+    const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if(ddmmyyyy){
+      const month = parseInt(ddmmyyyy[2], 10);
+      const year = parseInt(ddmmyyyy[3], 10);
+      if(month >= 1 && month <= 12){
+        return year + '-' + String(month).padStart(2, '0');
+      }
+    }
+
+    // Formato ISO YYYY-MM-DD o YYYY/MM/DD
+    const yyyymmdd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if(yyyymmdd){
+      const year = parseInt(yyyymmdd[1], 10);
+      const month = parseInt(yyyymmdd[2], 10);
+      if(month >= 1 && month <= 12){
+        return year + '-' + String(month).padStart(2, '0');
+      }
     }
   }
   return null;
@@ -3072,18 +3127,31 @@ function uploadTimesheetExcel(){
   reader.onload = function(e){
     try{
       const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array', cellDates:true});
-      const parsed = {}; // { nombreHoja: { etiquetaProyecto: { 'YYYY-MM': horas } } }
+      const parsed = {}; // { nombreHoja: { cellA: str, projectsMap: { etiquetaProyecto: { 'YYYY-MM': horas } } } }
 
       wb.SheetNames.forEach(sheetName=>{
         const ws = wb.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
-        const headerRowIdx = rows.findIndex(r => {
+        if(!rows || rows.length===0) return;
+
+        let headerRowIdx = rows.findIndex(r => {
           const v = String(r[0]||'').trim().toLowerCase();
           return v === 'proyecto' || v.startsWith('proyecto') || v === 'pep';
         });
+
+        if(headerRowIdx===-1){
+          headerRowIdx = rows.findIndex(r => {
+            let dateCount = 0;
+            (r||[]).forEach((c, i)=>{
+              if(i>1 && parseMonthFromCell(c)) dateCount++;
+            });
+            return dateCount >= 3;
+          });
+        }
         if(headerRowIdx===-1) return;
 
         const headerRow = rows[headerRowIdx];
+        const cellA3 = String(headerRow[0]||'').trim();
         const dateCols = [];
         headerRow.forEach((cell, idx)=>{
           if(idx === 0 || idx === 1) return;
@@ -3107,7 +3175,12 @@ function uploadTimesheetExcel(){
             }
           });
         }
-        if(Object.keys(projectsMap).length) parsed[sheetName.trim()] = projectsMap;
+        if(Object.keys(projectsMap).length){
+          parsed[sheetName.trim()] = {
+            cellA: cellA3,
+            projectsMap
+          };
+        }
       });
 
       if(Object.keys(parsed).length===0){
@@ -3115,16 +3188,22 @@ function uploadTimesheetExcel(){
         fileInput.value=''; return;
       }
 
-      // Limpia adecuadamente los registros de Excel anteriores para las personas y meses del archivo
-      Object.entries(parsed).forEach(([sheetPersonName, projectsMap])=>{
-        const person = state.people.find(p=>namesMatch(sheetPersonName, p.name));
+      // 1. Limpia adecuadamente los registros de Excel anteriores para las personas del archivo
+      Object.entries(parsed).forEach(([sheetName, sheetData])=>{
+        let person = state.people.find(p=>namesMatch(sheetName, p.name));
+        if(!person && sheetData.cellA){
+          person = state.people.find(p=>namesMatch(sheetData.cellA, p.name));
+        }
         if(!person) return;
+
         const monthsInSheet = new Set();
-        Object.values(projectsMap).forEach(monthsObj=>{
+        Object.values(sheetData.projectsMap).forEach(monthsObj=>{
           Object.keys(monthsObj).forEach(m=> monthsInSheet.add(m));
         });
+
+        // Limpiar de realEntries de origen excel las entradas de los meses involucrados para esta persona
         state.realEntries = state.realEntries.filter(entry=>{
-          if(entry.personId === person.id && monthsInSheet.has(entry.month) && entry.source === 'excel') return false;
+          if(entry.personId === person.id && entry.source === 'excel' && (monthsInSheet.has(entry.month) || entry.month === '2026-08')) return false;
           return true;
         });
       });
@@ -3132,9 +3211,15 @@ function uploadTimesheetExcel(){
       let matchedCount=0, adminCount=0;
       const unmatchedPeople=[], unmatchedProjects=[];
 
-      Object.entries(parsed).forEach(([sheetPersonName, projectsMap])=>{
-        const person = state.people.find(p=>namesMatch(sheetPersonName, p.name));
-        if(!person){ unmatchedPeople.push(sheetPersonName); return; }
+      // 2. Imputación de horas
+      Object.entries(parsed).forEach(([sheetName, sheetData])=>{
+        const projectsMap = sheetData.projectsMap;
+        let person = state.people.find(p=>namesMatch(sheetName, p.name));
+        if(!person && sheetData.cellA){
+          person = state.people.find(p=>namesMatch(sheetData.cellA, p.name));
+        }
+        if(!person){ unmatchedPeople.push(sheetName); return; }
+
         Object.entries(projectsMap).forEach(([label, monthsObj])=>{
           const project = findMatchingProject(label);
           const code = extractPepCode(label) || label;
@@ -3144,7 +3229,7 @@ function uploadTimesheetExcel(){
               addRealEntryHours(cat, project.id, person.id, month, hours);
               if(cat==='admin') adminCount++; else matchedCount++;
             }else{
-              unmatchedProjects.push(sheetPersonName+' — '+label+' ('+(code||'sin PEP')+') — '+fmtMonth(month)+': '+fmtH(hours)+' h');
+              unmatchedProjects.push(person.name+' — '+label+' ('+(code||'sin PEP')+') — '+fmtMonth(month)+': '+fmtH(hours)+' h');
             }
           });
         });
@@ -3269,30 +3354,7 @@ function deleteLineaNegocio(name){
   persistConfig(); renderAll();
 }
 
-function openRoleModal(existingRole){
-  const rate = existingRole ? state.config.roleRates[existingRole] : '';
-  document.getElementById('modalBody').innerHTML =
-    '<h3>'+(existingRole?'Editar rol':'Nuevo rol')+'</h3>'
-    + '<div class="form-grid">'
-    + '<div class="field"><label>Nombre del rol</label><input id="f_rolename" value="'+(existingRole||'')+'" '+(existingRole?'disabled':'')+' placeholder="Ej: Consultor Senior"></div>'
-    + '<div class="field"><label>Tarifa por hora (CLP)</label><input id="f_rolerate" type="number" min="0" value="'+(rate!==undefined?rate:'')+'"></div>'
-    + '</div>'
-    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveRole(\''+(existingRole||'')+'\')">Guardar</button></div>';
-  openModal();
-}
-function saveRole(oldName){
-  const name = document.getElementById('f_rolename').value.trim();
-  const rate = Number(document.getElementById('f_rolerate').value)||0;
-  if(!name){ showToast('Ingresa un nombre de rol.'); return; }
-  if(oldName && oldName!==name) delete state.config.roleRates[oldName];
-  state.config.roleRates[name] = rate;
-  persistConfig(); closeModal(); renderAll(); showToast('Rol guardado.');
-}
-function deleteRole(role){
-  if(!confirm('¿Eliminar este rol del catálogo? Las personas con este rol quedarán sin tarifa por defecto.')) return;
-  delete state.config.roleRates[role];
-  persistConfig(); renderAll();
-}
+
 function saveCapacityConfig(){
   state.config.monthlyCapacity = Number(document.getElementById('cfg_capacity').value)||180;
   state.config.targetProjectPct = Number(document.getElementById('cfg_targetProject').value)||80;
