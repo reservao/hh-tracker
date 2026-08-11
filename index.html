@@ -399,18 +399,47 @@ function migrateProjectPeople(){
       proj.people.forEach(op=>{
         const key = (op.name||'').trim().toLowerCase();
         let gid = nameToId[key];
-        if(!gid){
-          gid = uid('pers');
-          state.people.push({id:gid, name:op.name, role:op.role||'Consultor', capacityOverride:null});
-          nameToId[key] = gid;
-        }
+        const person = getPerson(gid);
+        const role = person ? person.role : (op.role || 'Consultor');
         const pbm = {};
         if(op.projectedHours) pbm[currentMonth()] = op.projectedHours;
-        proj.assignments.push({personId:gid, projectedByMonth:pbm, _oldId:op.id});
+        let existingRoleAssignment = proj.assignments.find(a => a.role === role);
+        if(!existingRoleAssignment){
+          existingRoleAssignment = { role, projectedByMonth: {} };
+          proj.assignments.push(existingRoleAssignment);
+        }
+        Object.entries(pbm).forEach(([m, h]) => {
+          existingRoleAssignment.projectedByMonth[m] = (existingRoleAssignment.projectedByMonth[m]||0) + Number(h);
+        });
       });
       delete proj.people;
     }
-    if(!proj.assignments) proj.assignments = [];
+    if(proj.assignments && Array.isArray(proj.assignments)){
+      const newAssignmentsMap = {};
+      let hasPersonId = false;
+      proj.assignments.forEach(a => {
+        if(a.personId){
+          hasPersonId = true;
+          const person = getPerson(a.personId);
+          const role = person ? person.role : (a.role || 'Consultor');
+          if(!newAssignmentsMap[role]) newAssignmentsMap[role] = {};
+          Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+            newAssignmentsMap[role][m] = (newAssignmentsMap[role][m]||0) + Number(h||0);
+          });
+        } else if(a.role) {
+          if(!newAssignmentsMap[a.role]) newAssignmentsMap[a.role] = {};
+          Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+            newAssignmentsMap[a.role][m] = (newAssignmentsMap[a.role][m]||0) + Number(h||0);
+          });
+        }
+      });
+      if(hasPersonId){
+        changed = true;
+        proj.assignments = Object.entries(newAssignmentsMap).map(([role, projectedByMonth]) => ({ role, projectedByMonth }));
+      }
+    } else {
+      proj.assignments = [];
+    }
     if(!proj.startMonth) proj.startMonth = '';
     if(!proj.endMonth) proj.endMonth = '';
   });
@@ -478,7 +507,121 @@ function personProjectHoursInMonth(personId, month){ return state.realEntries.fi
 function personAdminHoursInMonth(personId, month){ return state.realEntries.filter(e=>e.category==='admin' && e.personId===personId && e.month===month).reduce((s,e)=>s+Number(e.hours||0),0); }
 function lastMonthsDesc(n){ return addMonthsAgo(n).slice().reverse(); }
 
-function projectTotals(project){ return projectTotalsForPeople(project, null); }
+function getRolePriority(r){
+  const norm = normalizeStr(r);
+  if(norm.includes('director')) return 1;
+  if(norm.includes('jefe') || norm.includes('lider') || norm.includes('lead') || norm.includes('manager')) return 2;
+  if(norm.includes('consultor') || norm.includes('especialista') || norm.includes('analista')) return 3;
+  return 4;
+}
+
+function getAllRoles(){
+  const set = new Set();
+  state.people.forEach(p => { if(p.role && p.role.trim()) set.add(p.role.trim()); });
+  state.projects.forEach(pr => {
+    (pr.assignments||[]).forEach(a => { if(a.role && a.role.trim()) set.add(a.role.trim()); });
+  });
+  const list = Array.from(set);
+  list.sort((a, b) => {
+    const prioA = getRolePriority(a);
+    const prioB = getRolePriority(b);
+    if(prioA !== prioB) return prioA - prioB;
+    return a.localeCompare(b);
+  });
+  return list;
+}
+function peopleWithRole(roleName){
+  return state.people.filter(p => p.role === roleName);
+}
+function roleCapacity(roleName){
+  const people = peopleWithRole(roleName);
+  if(people.length > 0){
+    return people.reduce((sum, p) => sum + personCapacity(p), 0);
+  }
+  return Number(state.config.monthlyCapacity || 180);
+}
+function projectRealHoursForRole(projectId, roleName){
+  const personIds = new Set(peopleWithRole(roleName).map(p => p.id));
+  return state.realEntries.filter(e => e.category === 'project' && e.projectId === projectId && personIds.has(e.personId)).reduce((s, e) => s + Number(e.hours || 0), 0);
+}
+function roleProjectHoursInMonth(roleName, month){
+  const personIds = new Set(peopleWithRole(roleName).map(p => p.id));
+  return state.realEntries.filter(e => e.category === 'project' && personIds.has(e.personId) && e.month === month).reduce((s, e) => s + Number(e.hours || 0), 0);
+}
+function roleAdminHoursInMonth(roleName, month){
+  const personIds = new Set(peopleWithRole(roleName).map(p => p.id));
+  return state.realEntries.filter(e => e.category === 'admin' && personIds.has(e.personId) && e.month === month).reduce((s, e) => s + Number(e.hours || 0), 0);
+}
+
+function getRoleLineaPairs(){
+  const pairsMap = new Map();
+  state.people.forEach(p => {
+    const l = p.lineaNegocio || 'Sin línea';
+    const r = p.role || 'Consultor';
+    const key = l + '|||' + r;
+    if(!pairsMap.has(key)) pairsMap.set(key, { linea: l, role: r });
+  });
+  state.projects.forEach(pr => {
+    const l = pr.lineaNegocio || 'Sin línea';
+    (pr.assignments||[]).forEach(a => {
+      if(a.role){
+        const key = l + '|||' + a.role;
+        if(!pairsMap.has(key)) pairsMap.set(key, { linea: l, role: a.role });
+      }
+    });
+  });
+  const list = Array.from(pairsMap.values());
+  list.sort((a,b) => {
+    const lineaCmp = a.linea.localeCompare(b.linea);
+    if(lineaCmp !== 0) return lineaCmp;
+    const prioA = getRolePriority(a.role);
+    const prioB = getRolePriority(b.role);
+    if(prioA !== prioB) return prioA - prioB;
+    return a.role.localeCompare(b.role);
+  });
+  return list;
+}
+function peopleWithRoleAndLinea(roleName, lineaName){
+  return state.people.filter(p => p.role === roleName && (p.lineaNegocio || 'Sin línea') === lineaName);
+}
+function roleLineaCapacity(roleName, lineaName){
+  const people = peopleWithRoleAndLinea(roleName, lineaName);
+  if(people.length > 0){
+    return people.reduce((sum, p) => sum + personCapacity(p), 0);
+  }
+  return Number(state.config.monthlyCapacity || 180);
+}
+function roleLineaProjectHoursInMonth(roleName, lineaName, month){
+  let proj = 0;
+  state.projects.forEach(pr => {
+    const pLinea = pr.lineaNegocio || 'Sin línea';
+    if(pLinea === lineaName){
+      (pr.assignments||[]).forEach(a => {
+        if(a.role === roleName && a.projectedByMonth && a.projectedByMonth[month]){
+          proj += Number(a.projectedByMonth[month] || 0);
+        }
+      });
+    }
+  });
+  return proj;
+}
+function roleLineaRealHoursInMonth(roleName, lineaName, month){
+  const personIds = new Set(peopleWithRoleAndLinea(roleName, lineaName).map(p => p.id));
+  return state.realEntries.filter(e => personIds.has(e.personId) && e.month === month).reduce((s, e) => s + Number(e.hours || 0), 0);
+}
+
+function projectTotals(project){
+  let projectedHours = 0, actualHours = 0;
+  (project.assignments||[]).forEach(a => {
+    projectedHours += assignmentProjectedTotal(a);
+  });
+  state.realEntries.forEach(e => {
+    if(e.projectId === project.id){
+      actualHours += Number(e.hours||0);
+    }
+  });
+  return { projectedHours, actualHours };
+}
 
 function gauge(projected, actual){
   projected = Number(projected)||0; actual = Number(actual)||0;
@@ -875,7 +1018,7 @@ function renderDashModeSelector(){
     + '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">'
     + '<span style="font-size:12.5px; font-weight:700; color:var(--muted); margin-right:4px">Perspectiva:</span>'
     + '<button class="tab-btn '+(mode==='global'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'global\')">🌐 Resumen Global</button>'
-    + '<button class="tab-btn '+(mode==='personas'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'personas\')">👥 Todo el Equipo</button>'
+    + '<button class="tab-btn '+(mode==='personas'||mode==='roles'?'active':'')+'" style="padding:6px 12px; font-size:13px" onclick="setDashMode(\'roles\')">👥 Desglose por Rol</button>'
     + '</div>'
     + '<div style="display:flex; gap:8px; align-items:center;" class="no-print">'
     + '<button class="btn btn-secondary btn-sm" onclick="exportFullReportExcel()">📥 Exportar Excel</button>'
@@ -1326,30 +1469,30 @@ function exportFullReportExcel(){
     const wsProj = XLSX.utils.aoa_to_sheet([projHeaders].concat(projRows));
     XLSX.utils.book_append_sheet(wb, wsProj, 'Resumen Proyectos');
 
-    // Tab 2: Equipo
-    const teamHeaders = ['Nombre', 'Línea de Negocio', 'Unidad', 'Rol', 'Capacidad Mensual (h)', 'Total HH Proyectadas', 'Total HH Reales'];
-    const teamRows = state.people.map(p => {
-      let totalProj = 0, totalAct = 0;
+    // Tab 2: Roles
+    const roleHeaders = ['Rol / Cargo', 'Integrantes', 'Nombres Integrantes', 'Capacidad Total Mensual (h)', 'Total HH Proyectadas', 'Total HH Reales'];
+    const roleRows = getAllRoles().map(r => {
+      const peopleInR = peopleWithRole(r);
+      const namesStr = peopleInR.map(p => p.name).join(', ');
+      let totalProj = 0;
       state.projects.forEach(pr => {
         (pr.assignments || []).forEach(a => {
-          if (a.personId === p.id) {
-            totalProj += assignmentProjectedTotal(a);
-            totalAct += projectRealHoursForPerson(pr.id, p.id);
-          }
+          if (a.role === r) totalProj += assignmentProjectedTotal(a);
         });
       });
+      const personIds = new Set(peopleInR.map(p => p.id));
+      let totalAct = state.realEntries.filter(e => personIds.has(e.personId)).reduce((s, e) => s + Number(e.hours||0), 0);
       return [
-        p.name,
-        p.lineaNegocio || '',
-        getUnidadForLinea(p.lineaNegocio),
-        p.role,
-        personCapacity(p),
+        r,
+        peopleInR.length,
+        namesStr,
+        roleCapacity(r),
         totalProj,
         totalAct
       ];
     });
-    const wsTeam = XLSX.utils.aoa_to_sheet([teamHeaders].concat(teamRows));
-    XLSX.utils.book_append_sheet(wb, wsTeam, 'Resumen Equipo');
+    const wsTeam = XLSX.utils.aoa_to_sheet([roleHeaders].concat(roleRows));
+    XLSX.utils.book_append_sheet(wb, wsTeam, 'Resumen por Roles');
 
     // Tab 3: Registros Reales
     const entryHeaders = ['Mes', 'Categoría', 'Proyecto / Referencia', 'Persona', 'Rol', 'Horas Reales', 'Nota', 'Fuente'];
@@ -1432,41 +1575,54 @@ function renderDashAllProjects(){
   return html;
 }
 
-function renderDashAllPeople(){
-  let html = '<div class="section-label">Todo el Equipo (Resumen Transversal)</div>';
-  const filteredPeople = state.people.filter(p => isPersonInEntityFilter(p));
-  if(filteredPeople.length === 0){
-    return html + '<div class="card"><div class="empty"><div class="display">No hay integrantes que coincidan con el filtro seleccionado</div></div></div>';
+function renderDashAllRoles(){
+  let html = '<div class="section-label">Desglose por Rol / Cargo (Resumen Transversal)</div>';
+  const roles = getAllRoles();
+  if(roles.length === 0){
+    return html + '<div class="card"><div class="empty"><div class="display">No hay roles registrados ni con proyecciones</div></div></div>';
   }
-  const rows = filteredPeople.map(p => {
-    let totalProj = 0, totalAct = 0;
-    state.projects.forEach(pr=>{
-      (pr.assignments||[]).forEach(a=>{
-        if(a.personId===p.id){
+  const rows = roles.map(r => {
+    const peopleInR = peopleWithRole(r);
+    const lineasSet = new Set(peopleInR.map(p => p.lineaNegocio).filter(Boolean));
+    const lineasStr = Array.from(lineasSet).join(', ') || '—';
+
+    let totalProj = 0;
+    state.projects.forEach(pr => {
+      (pr.assignments||[]).forEach(a => {
+        if(a.role === r){
           totalProj += assignmentProjectedTotal(a);
-          totalAct += projectRealHoursForPerson(pr.id, p.id);
         }
       });
     });
+
+    const personIds = new Set(peopleInR.map(p => p.id));
+    let totalAct = state.realEntries.filter(e => personIds.has(e.personId)).reduce((s, e) => s + Number(e.hours||0), 0);
+
     return '<tr>'
-      + '<td><b>'+p.name+'</b></td>'
-      + '<td>'+(p.lineaNegocio||'<span class="muted">Sin línea</span>')+'</td>'
-      + '<td>'+p.role+'</td>'
-      + '<td class="mono" style="text-align:right">'+fmtH(totalProj)+' h</td>'
-      + '<td class="mono" style="text-align:right">'+fmtH(totalAct)+' h</td>'
-      + '<td style="min-width:180px">'+gauge(totalProj, totalAct)+'</td>'
+      + '<td><b>' + r + '</b></td>'
+      + '<td>' + lineasStr + '</td>'
+      + '<td style="text-align:center"><span class="chip">' + peopleInR.length + ' persona(s)</span></td>'
+      + '<td class="mono" style="text-align:right">' + fmtH(totalProj) + ' h</td>'
+      + '<td class="mono" style="text-align:right">' + fmtH(totalAct) + ' h</td>'
+      + '<td style="min-width:180px">' + gauge(totalProj, totalAct) + '</td>'
       + '</tr>';
   }).join('');
 
-  html += '<div class="card"><table><thead><tr><th>Nombre</th><th>Línea de Negocio</th><th>Rol</th><th class="num">Total Proyectadas</th><th class="num">Total Reales</th><th>Consumo</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  html += '<div class="card"><table><thead><tr><th>Rol / Cargo</th><th>Líneas de Negocio</th><th style="text-align:center">Integrantes</th><th class="num">Total Proyectadas</th><th class="num">Total Reales</th><th>Consumo</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   
-  // Separador de bloque y Matriz Heatmap en la vista de Todo el Equipo
   html += '<div style="margin-top:28px; margin-bottom:16px; text-align:center; border-bottom:1px dashed var(--border); line-height:0.1em;">'
     + '<span style="background:var(--bg); padding:0 14px; font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--muted); text-transform:uppercase;">'
-    + '🔥 MATRIZ DE DISPONIBILIDAD Y CARGA DE TRABAJO (HEATMAP)'
+    + '🔥 MATRIZ DE DISPONIBILIDAD Y CARGA DE TRABAJO POR ROL (HEATMAP)'
     + '</span>'
     + '</div>';
   html += renderMatrizHeatmap();
+
+  html += '<div style="margin-top:28px; margin-bottom:16px; text-align:center; border-bottom:1px dashed var(--border); line-height:0.1em;">'
+    + '<span style="background:var(--bg); padding:0 14px; font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--muted); text-transform:uppercase;">'
+    + '🏷️ MATRIZ DE DISPONIBILIDAD Y CARGA DE TRABAJO POR ROL Y LÍNEA DE NEGOCIO (HEATMAP)'
+    + '</span>'
+    + '</div>';
+  html += renderMatrizHeatmapPorLineaNegocio();
 
   return html;
 }
@@ -2126,15 +2282,16 @@ function renderOmniboxResults(query){
     }
   });
 
-  // 2. People
-  state.people.forEach(p => {
-    if(!q || normalizeStr(p.name).includes(q) || (p.role && normalizeStr(p.role).includes(q)) || (p.lineaNegocio && normalizeStr(p.lineaNegocio).includes(q))){
+  // 2. Roles
+  getAllRoles().forEach(r => {
+    if(!q || normalizeStr(r).includes(q)){
+      const peopleInR = peopleWithRole(r);
       results.push({
-        type: 'Persona',
+        type: 'Rol / Cargo',
         icon: '👤',
-        title: p.name,
-        sub: p.role + (p.lineaNegocio ? ' · LN: ' + p.lineaNegocio : ''),
-        action: () => { toggleOmniboxModal(); dashGoto({personId: p.id}); }
+        title: r,
+        sub: peopleInR.length + ' integrante(s) en este rol',
+        action: () => { toggleOmniboxModal(); setDashMode('roles'); }
       });
     }
   });
@@ -2247,7 +2404,7 @@ function renderDashboard(){
   const selector = renderDashModeSelector();
   const timeFilter = renderDashTimeFilterPanel();
 
-  if(mode === 'personas') return selector + timeFilter + renderDashAllPeople();
+  if(mode === 'personas' || mode === 'roles') return selector + timeFilter + renderDashAllRoles();
   return selector + timeFilter + renderDashGlobal();
 }
 
@@ -2320,32 +2477,20 @@ function renderDashProyecto(){
 
   const assignments = p.assignments||[];
   if(assignments.length===0){
-    html += '<div class="card"><p class="muted" style="font-size:13px">Sin personas asignadas todavía.</p></div>';
+    html += '<div class="card"><p class="muted" style="font-size:13px">Sin proyecciones por rol registradas todavía.</p></div>';
     return html;
   }
-  const byRole = {};
-  assignments.forEach(a=>{
-    const person = getPerson(a.personId); if(!person) return;
-    const act = projectRealHoursForPerson(p.id, a.personId);
+  const roleRows = assignments.map(a=>{
+    const roleName = a.role; if(!roleName) return '';
     const proj = assignmentProjectedTotal(a);
-    if(!byRole[person.role]) byRole[person.role] = {projected:0, actual:0};
-    byRole[person.role].projected += proj; byRole[person.role].actual += act;
-  });
-  const roleRows = Object.entries(byRole).map(function(entry){
-    const role=entry[0], v=entry[1];
-    return '<div style="margin-bottom:10px"><div style="font-size:12.5px; font-weight:600; margin-bottom:4px">'+role+'</div>'+gauge(v.projected, v.actual)+'</div>';
-  }).join('');
-  const personRows = assignments.map(a=>{
-    const person = getPerson(a.personId); if(!person) return '';
-    const act = projectRealHoursForPerson(p.id, a.personId);
-    const proj = assignmentProjectedTotal(a);
-    return '<div class="person-row expand-toggle" onclick="dashGoto({unidad:\''+(state.dashNav.unidad||'')+'\',linea:\''+(state.dashNav.linea||'')+'\',projectId:\''+p.id+'\',personId:\''+person.id+'\'})">'
-      + '<div><div class="person-name">'+person.name+'</div><div class="person-role">'+person.role+'</div></div>'
-      + '<div>'+gauge(proj, act)+'</div><div class="link-btn">Ver ▶</div>'
+    const act = projectRealHoursForRole(p.id, roleName);
+    return '<div class="person-row">'
+      + '<div><div class="person-name">'+roleName+'</div><div class="person-role">'+(peopleWithRole(roleName).length)+' integrante(s) en este rol</div></div>'
+      + '<div>'+gauge(proj, act)+'</div><div></div>'
       + '</div>';
   }).join('');
-  html += '<div class="card"><div class="section-label" style="margin-top:0">Consumo por rol</div>'+roleRows
-    + '<div class="section-label">Consumo por persona (clic para ver tendencia mensual)</div>'+personRows+'</div>';
+
+  html += '<div class="card"><div class="section-label" style="margin-top:0">Consumo por rol en este proyecto</div>'+roleRows+'</div>';
   return html;
 }
 
@@ -2442,7 +2587,7 @@ function renderProyectos(){
       + '<div><div class="card-title">'+p.name+typeBadge+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
       + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+lineaText+' · '+periodo+'</div></div>'
       + '<div style="display:flex; gap:6px; flex-wrap:wrap">'
-      + '<button class="btn btn-secondary btn-sm" onclick="toggleMgmt(\''+p.id+'\')">'+(expanded?'Cerrar':'Gestionar personas')+'</button>'
+      + '<button class="btn btn-secondary btn-sm" onclick="toggleMgmt(\''+p.id+'\')">'+(expanded?'Cerrar':'Gestionar roles / proyecciones')+'</button>'
       + '<button class="btn btn-secondary btn-sm" onclick="openProjectModal(\''+p.id+'\')">Editar</button>'
       + '<button class="btn btn-ghost btn-sm" onclick="deleteProject(\''+p.id+'\')">Eliminar</button>'
       + '</div></div>'
@@ -2461,28 +2606,28 @@ function toggleMgmt(id){
 function renderPeopleManager(p){
   const months = monthRange(p.startMonth, p.endMonth);
   const rows = (p.assignments||[]).map(a=>{
-    const person = getPerson(a.personId);
-    if(!person) return '';
+    const roleName = a.role;
+    if(!roleName) return '';
     const proj = assignmentProjectedTotal(a);
-    const act = projectRealHoursForPerson(p.id, a.personId);
+    const act = projectRealHoursForRole(p.id, roleName);
     return '<tr>'
-      + '<td>'+person.name+'</td>'
-      + '<td>'+person.role+'</td>'
-      + '<td class="mono" style="text-align:right">'+fmtH(proj)+'</td>'
-      + '<td class="mono" style="text-align:right">'+fmtH(act)+'</td>'
+      + '<td><b>'+roleName+'</b></td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(proj)+' h</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(act)+' h</td>'
       + '<td style="text-align:right">'
-      + '<button class="btn btn-ghost btn-sm" onclick="openProjectionModal(\''+p.id+'\',\''+a.personId+'\')">Proyección</button>'
-      + '<button class="btn btn-ghost btn-sm" onclick="removeAssignment(\''+p.id+'\',\''+a.personId+'\')">Quitar</button>'
+      + '<button class="btn btn-ghost btn-sm" onclick="openProjectionModal(\''+p.id+'\',\''+roleName.replace(/'/g,"\\'")+'\')">Proyección</button>'
+      + '<button class="btn btn-ghost btn-sm" onclick="removeRoleAssignment(\''+p.id+'\',\''+roleName.replace(/'/g,"\\'")+'\')">Quitar</button>'
       + '</td></tr>';
   }).join('');
   const excelBlock = months.length
-    ? '<button class="btn btn-secondary btn-sm" onclick="downloadProjectionTemplate(\''+p.id+'\')">Descargar plantilla proyección</button>'
+    ? '<button class="btn btn-secondary btn-sm" onclick="openProjectionModal(\''+p.id+'\')">+ Proyectar nuevo rol</button>'
+      + '<button class="btn btn-secondary btn-sm" onclick="downloadProjectionTemplate(\''+p.id+'\')">Descargar plantilla proyección por ROL</button>'
       + '<label class="btn btn-secondary btn-sm" style="margin-bottom:0">Cargar proyección Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadProjectionExcel(event,\''+p.id+'\')"></label>'
-    : '<span class="muted" style="font-size:12px; align-self:center">Define mes inicio/término (botón Editar) para habilitar la carga de proyección.</span>';
-  return '<div class="section-label">Personas asignadas</div>'
+    : '<span class="muted" style="font-size:12px; align-self:center">Define mes inicio/término (botón Editar) para habilitar la carga de proyección por roles.</span>';
+  return '<div class="section-label">Roles y proyecciones de horas del proyecto</div>'
     + ((p.assignments||[]).length
-        ? '<table><thead><tr><th>Nombre</th><th>Rol</th><th class="num">HH proyectadas</th><th class="num">HH reales</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
-        : '<p class="muted" style="font-size:13px; margin-bottom:8px">Sin personas aún.</p>')
+        ? '<table><thead><tr><th>Rol / Cargo</th><th class="num">HH proyectadas</th><th class="num">HH reales (equipo)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
+        : '<p class="muted" style="font-size:13px; margin-bottom:8px">Sin proyecciones por rol registradas aún.</p>')
     + '<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">'
     + excelBlock
     + '</div>';
@@ -2520,6 +2665,7 @@ function openProjectModal(projectId){
     + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveProject('+(p?"'"+p.id+"'":'null')+')">Guardar</button></div>';
   openModal();
 }
+
 function saveProject(projectId){
   const name = document.getElementById('f_name').value.trim();
   const tipo = document.getElementById('f_tipo').value;
@@ -2542,6 +2688,7 @@ function saveProject(projectId){
   }
   persistProjects(); closeModal(); renderAll(); showToast(tipo==='admin' ? 'PEP de Administración guardado.' : 'Proyecto guardado.');
 }
+
 function deleteProject(id){
   if(!confirm('¿Eliminar este proyecto y todos sus registros de horas asociados? Esta acción no se puede deshacer.')) return;
   state.projects = state.projects.filter(p=>p.id!==id);
@@ -2550,94 +2697,103 @@ function deleteProject(id){
   renderAll(); showToast('Proyecto eliminado.');
 }
 
-// ---------- Asignaciones (solo vía Excel de proyección, o quitar manualmente) ----------
-function removeAssignment(projectId, personId){
-  if(!confirm('¿Quitar a esta persona del proyecto?')) return;
+function removeRoleAssignment(projectId, roleName){
+  if(!confirm('¿Quitar las proyecciones de este rol en el proyecto?')) return;
   const p = state.projects.find(x=>x.id===projectId);
-  p.assignments = p.assignments.filter(a=>a.personId!==personId);
-  persistProjects(); renderAll(); showToast('Persona quitada del proyecto.');
+  p.assignments = (p.assignments||[]).filter(a=>a.role!==roleName);
+  persistProjects(); renderAll(); showToast('Rol quitado del proyecto.');
 }
 
-function openProjectionModal(projectId, personId){
+function openProjectionModal(projectId, roleName){
   const p = state.projects.find(x=>x.id===projectId);
-  const a = p.assignments.find(x=>x.personId===personId);
-  const person = getPerson(personId);
   const months = monthRange(p.startMonth, p.endMonth);
   if(months.length===0){
     document.getElementById('modalBody').innerHTML =
-      '<h3>Proyección — '+person.name+'</h3><p class="muted" style="font-size:13px">Define el mes de inicio y término del proyecto (botón Editar) para poder distribuir la proyección mes a mes.</p>'
+      '<h3>Proyección por Rol</h3><p class="muted" style="font-size:13px">Define el mes de inicio y término del proyecto (botón Editar) para poder distribuir la proyección mes a mes.</p>'
       + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cerrar</button></div>';
     openModal(); return;
   }
+
+  const allRoles = getAllRoles();
+  const roleOptions = allRoles.map(r => '<option value="'+r+'" '+(roleName===r?'selected':'')+'>'+r+'</option>').join('');
+  const a = (p.assignments||[]).find(x=>x.role===roleName) || { role: roleName || '', projectedByMonth: {} };
+
   const rows = months.map(m=>
     '<div class="field" style="display:flex; align-items:center; gap:10px; margin-bottom:8px">'
     + '<label style="min-width:90px; margin-bottom:0">'+fmtMonth(m)+'</label>'
     + '<input type="number" min="0" step="0.5" data-month="'+m+'" class="proj-month-input" value="'+(a.projectedByMonth[m]||'')+'" style="max-width:120px"></div>'
   ).join('');
   const total = months.reduce((s,m)=>s+Number(a.projectedByMonth[m]||0),0);
+
+  const roleSelectorHtml = roleName
+    ? '<h3>Proyección mensual — Rol: <b>'+roleName+'</b></h3><input type="hidden" id="f_proj_role" value="'+roleName+'">'
+    : '<h3>Proyectar Horas para un Rol</h3>'
+      + '<div class="field" style="margin-bottom:14px"><label>Selecciona o escribe el Rol / Cargo</label>'
+      + '<input id="f_proj_role" list="rolesDatalist" value="'+(allRoles[0]||'')+'" placeholder="Ej: Jefe de Proyecto / Consultor Senior">'
+      + '<datalist id="rolesDatalist">'+roleOptions+'</datalist></div>';
+
   document.getElementById('modalBody').innerHTML =
-    '<h3>Proyección mensual — '+person.name+'</h3>'
-    + '<div style="max-height:340px; overflow-y:auto; padding-right:6px">'+rows+'</div>'
+    roleSelectorHtml
+    + '<div class="section-label">Distribución de Horas Proyectadas por Mes</div>'
+    + '<div style="max-height:300px; overflow-y:auto; padding-right:6px">'+rows+'</div>'
     + '<p class="muted mono" style="font-size:12.5px; margin-top:10px">Total: '+fmtH(total)+' h</p>'
-    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveProjection(\''+projectId+'\',\''+personId+'\')">Guardar</button></div>';
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveProjection(\''+projectId+'\')">Guardar Proyección</button></div>';
   openModal();
 }
-function saveProjection(projectId, personId){
+
+function saveProjection(projectId){
   const p = state.projects.find(x=>x.id===projectId);
-  const a = p.assignments.find(x=>x.personId===personId);
+  const roleName = document.getElementById('f_proj_role').value.trim();
+  if(!roleName){ showToast('Ingresa o selecciona un Rol / Cargo.'); return; }
+  let a = (p.assignments||[]).find(x=>x.role===roleName);
+  if(!a){
+    if(!p.assignments) p.assignments = [];
+    a = { role: roleName, projectedByMonth: {} };
+    p.assignments.push(a);
+  }
   document.querySelectorAll('.proj-month-input').forEach(inp=>{
     const m = inp.dataset.month; const v = Number(inp.value)||0;
     if(v>0) a.projectedByMonth[m]=v; else delete a.projectedByMonth[m];
   });
-  persistProjects(); closeModal(); renderAll(); showToast('Proyección guardada.');
+  persistProjects(); closeModal(); renderAll(); showToast('Proyección por rol guardada.');
 }
 
 function downloadProjectionTemplate(projectId){
   const p = state.projects.find(x=>x.id===projectId);
   const months = monthRange(p.startMonth, p.endMonth);
   if(months.length===0){ showToast('Define mes inicio/término primero.'); return; }
-  if(state.people.length===0){ showToast('Agrega personas en Configuración → Equipo antes de descargar la plantilla.'); return; }
+  const allRoles = getAllRoles();
+  if(allRoles.length===0){ showToast('Registra personas con sus roles en Configuración antes de descargar la plantilla.'); return; }
   
-  // Hoja 1: Carga Proyección (ÚNICAMENTE personas de la Línea de Negocio del Proyecto)
-  const projectLinea = p.lineaNegocio || '';
-  const peopleInProjectLinea = projectLinea
-    ? state.people.filter(person => person.lineaNegocio === projectLinea)
-    : state.people;
-
+  // Hoja 1: Carga Proyección (por ROL)
   const monthHeaders = months.map(monthLabelFull);
-  const headerProj = ['Línea de Negocio','Persona'].concat(monthHeaders);
-  const rowsProj = peopleInProjectLinea.map(person=>{
-    const a = (p.assignments||[]).find(x=>x.personId===person.id);
-    const row = [person.lineaNegocio||'', person.name];
-    months.forEach(m=> row.push((a && a.projectedByMonth[m]) ? a.projectedByMonth[m] : ''));
+  const headerProj = ['Línea de Negocio','Rol'].concat(monthHeaders);
+  
+  const projectLinea = p.lineaNegocio || '';
+  const rowsProj = allRoles.map(roleName => {
+    const a = (p.assignments||[]).find(x=>x.role===roleName);
+    const peopleInR = peopleWithRole(roleName);
+    const lineasStr = Array.from(new Set(peopleInR.map(p=>p.lineaNegocio).filter(Boolean))).join(', ') || projectLinea;
+    const row = [lineasStr, roleName];
+    months.forEach(m => row.push((a && a.projectedByMonth[m]) ? a.projectedByMonth[m] : ''));
     return row;
   });
   const wsProj = XLSX.utils.aoa_to_sheet([headerProj].concat(rowsProj));
 
-  // Hoja 2: Todas las Personas (Catálogo completo de referencia)
-  const headerCat = ['Nombre Completo', 'Línea de Negocio', 'Unidad de Negocio', 'Rol'];
-  const rowsCat = state.people.map(person => [
-    person.name,
-    person.lineaNegocio || 'Sin línea',
-    getUnidadForLinea(person.lineaNegocio) || 'Sin unidad',
-    person.role
-  ]);
+  // Hoja 2: Catálogo de Roles (referencia)
+  const headerCat = ['Rol / Cargo', 'Cantidad de Integrantes', 'Integrantes', 'Líneas de Negocio'];
+  const rowsCat = allRoles.map(roleName => {
+    const peopleInR = peopleWithRole(roleName);
+    const namesStr = peopleInR.map(p => p.name).join(', ');
+    const lineasStr = Array.from(new Set(peopleInR.map(p=>p.lineaNegocio).filter(Boolean))).join(', ');
+    return [roleName, peopleInR.length, namesStr, lineasStr];
+  });
   const wsCat = XLSX.utils.aoa_to_sheet([headerCat].concat(rowsCat));
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsProj, 'Carga Proyección');
-  XLSX.utils.book_append_sheet(wb, wsCat, 'Todas las Personas');
-  XLSX.writeFile(wb, 'proyeccion_'+p.name.replace(/[^a-z0-9]+/gi,'_')+'.xlsx');
-}
-function showUnmatchedModal(matched, unmatched){
-  document.getElementById('modalBody').innerHTML =
-    '<h3>Carga procesada</h3>'
-    + '<p style="font-size:13.5px; margin-bottom:10px">'+matched+' registro(s) actualizados correctamente.</p>'
-    + '<p style="font-size:13.5px; margin-bottom:6px"><b>'+unmatched.length+' fila(s) no se pudieron asociar:</b></p>'
-    + '<ul style="font-size:12.5px; color:var(--muted); max-height:200px; overflow-y:auto; padding-left:18px">'+unmatched.map(u=>'<li>'+u+'</li>').join('')+'</ul>'
-    + '<p class="muted" style="font-size:12px; margin-top:10px">Revisa que los nombres coincidan exactamente con los registrados en Configuración → Equipo.</p>'
-    + '<div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">Entendido</button></div>';
-  openModal();
+  XLSX.utils.book_append_sheet(wb, wsCat, 'Catálogo de Roles');
+  XLSX.writeFile(wb, 'proyeccion_roles_'+p.name.replace(/[^a-z0-9]+/gi,'_')+'.xlsx');
 }
 
 function uploadProjectionExcel(evt, projectId){
@@ -2648,19 +2804,17 @@ function uploadProjectionExcel(evt, projectId){
   reader.onload = function(e){
     try{
       const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      // Busca la hoja de carga ('Carga Proyección', 'Proyeccion' o la primera hoja)
       const targetSheetName = wb.SheetNames.find(n => {
         const norm = normalizeStr(n);
-        return norm.includes('carga') || norm.includes('proyeccion');
+        return norm.includes('carga') || norm.includes('proyeccion') || norm.includes('rol');
       }) || wb.SheetNames[0];
 
       const ws = wb.Sheets[targetSheetName];
       const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
       if(rows.length===0){ showToast('La hoja de proyección no tiene filas con datos.'); evt.target.value=''; return; }
 
-      // Detecta qué columnas del archivo corresponden a qué mes, leyendo el encabezado en cualquier formato/capitalización
       const headerCols = Object.keys(rows[0]);
-      const monthHeaderMap = {}; // texto real de la columna -> 'YYYY-MM'
+      const monthHeaderMap = {};
       headerCols.forEach(h=>{
         const parsed = parseMonthLabel(h);
         if(parsed && months.includes(parsed)) monthHeaderMap[h] = parsed;
@@ -2669,23 +2823,34 @@ function uploadProjectionExcel(evt, projectId){
         showToast('No reconocí ninguna columna de mes en el archivo. Usa el formato "Marzo 2026" (mes + año).');
         evt.target.value=''; return;
       }
-      let matched=0; const unmatched=[];
+      let matched=0;
       rows.forEach(row=>{
-        const name = String(row['Persona']||row['Nombre Completo']||'').trim();
-        if(!name) return;
-        const person = state.people.find(x=>namesMatch(name, x.name));
-        if(!person){ unmatched.push(name); return; }
-        let a = p.assignments.find(x=>x.personId===person.id);
-        if(!a){ a = {personId:person.id, projectedByMonth:{}}; p.assignments.push(a); }
+        const roleName = String(row['Rol']||row['Cargo']||row['Rol / Cargo']||row['Persona']||'').trim();
+        if(!roleName) return;
+
+        let a = (p.assignments||[]).find(x=>x.role===roleName || normalizeStr(x.role)===normalizeStr(roleName));
+        if(!a){
+          if(!p.assignments) p.assignments = [];
+          a = { role: roleName, projectedByMonth: {} };
+          p.assignments.push(a);
+        }
+        let hasValue = false;
         Object.keys(monthHeaderMap).forEach(h=>{
-          if(row[h]!==''){ a.projectedByMonth[monthHeaderMap[h]] = Number(row[h])||0; }
+          if(row[h]!==''){
+            const numVal = Number(row[h])||0;
+            if(numVal > 0) {
+              a.projectedByMonth[monthHeaderMap[h]] = numVal;
+              hasValue = true;
+            } else {
+              delete a.projectedByMonth[monthHeaderMap[h]];
+            }
+          }
         });
-        matched++;
+        if(hasValue) matched++;
       });
       persistProjects(); renderAll();
-      if(unmatched.length) showUnmatchedModal(matched, unmatched.map(n=>n+' (persona no encontrada en Equipo)'));
-      else showToast('Proyección cargada: '+matched+' persona(s) actualizadas.');
-    }catch(err){ showToast('No se pudo leer el archivo. Verifica el formato.'); }
+      showToast('Proyección cargada: '+matched+' rol(es) actualizados en el proyecto.');
+    }catch(err){ console.error(err); showToast('No se pudo leer el archivo. Verifica el formato.'); }
     evt.target.value = '';
   };
   reader.readAsArrayBuffer(file);
@@ -2856,7 +3021,7 @@ function renderMatrizHeatmap(){
   const months = getFilteredMonthsListForHeatmap();
   let html = '<div class="card">'
     + '<div class="card-header">'
-    + '<div><div class="card-title">📊 Matriz de Disponibilidad y Carga de Trabajo (Heatmap)</div><div class="card-sub">Visibilidad de ocupación del equipo por mes (inspirado en Float y Resource Guru)</div></div>'
+    + '<div><div class="card-title">📊 Matriz de Disponibilidad y Carga de Trabajo por Rol (Heatmap)</div><div class="card-sub">Visibilidad de ocupación agregada por Rol/Cargo en cada mes</div></div>'
     + '<div style="display:flex; gap:10px; font-size:11.5px; align-items:center; flex-wrap:wrap">'
     + '<span class="badge" style="background:var(--red-bg); color:var(--red)">🔴 >105% Sobrecargado</span>'
     + '<span class="badge" style="background:var(--teal-bg); color:var(--teal)">🟢 75%-105% Óptimo</span>'
@@ -2865,31 +3030,32 @@ function renderMatrizHeatmap(){
     + '</div>'
     + '<div style="overflow-x:auto">'
     + '<table>'
-    + '<thead><tr><th>Colaborador</th><th>Rol</th>';
+    + '<thead><tr><th>Rol / Cargo</th><th>Integrantes</th>';
 
   months.forEach(m => { html += '<th style="text-align:center">'+fmtMonth(m)+'</th>'; });
   html += '</tr></thead><tbody>';
 
-  const filteredPeople = (state.people || []).filter(p => isPersonInEntityFilter(p));
-  if(filteredPeople.length === 0){
-    html += '<tr><td colspan="'+(months.length+2)+'" class="empty">No hay colaboradores para la estructura seleccionada en el filtro.</td></tr>';
+  const roles = getAllRoles();
+  if(roles.length === 0){
+    html += '<tr><td colspan="'+(months.length+2)+'" class="empty">No hay roles registrados.</td></tr>';
   } else {
-    filteredPeople.forEach(p => {
-      const cap = personCapacity(p);
+    roles.forEach(r => {
+      const peopleInR = peopleWithRole(r);
+      const cap = roleCapacity(r);
       html += '<tr>'
-        + '<td><strong>'+p.name+'</strong></td>'
-        + '<td><span class="chip">'+(p.role||'Consultor')+'</span></td>';
+        + '<td><strong>'+r+'</strong></td>'
+        + '<td><span class="chip">'+peopleInR.length+' persona(s)</span></td>';
 
       months.forEach(m => {
         let proj = 0;
         state.projects.forEach(projObj => {
           (projObj.assignments||[]).forEach(a => {
-            if(a.personId === p.id && a.projectedByMonth && a.projectedByMonth[m]){
+            if(a.role === r && a.projectedByMonth && a.projectedByMonth[m]){
               proj += Number(a.projectedByMonth[m]||0);
             }
           });
         });
-        const real = personProjectHoursInMonth(p.id, m) + personAdminHoursInMonth(p.id, m);
+        const real = roleProjectHoursInMonth(r, m) + roleAdminHoursInMonth(r, m);
         const total = Math.max(proj, real);
         const pct = cap > 0 ? Math.round((total / cap) * 100) : 0;
         let bgStyle = 'var(--amber-bg)';
@@ -2898,7 +3064,7 @@ function renderMatrizHeatmap(){
         else if(pct >= 75){ bgStyle = 'var(--teal-bg)'; textColor = 'var(--teal)'; }
 
         html += '<td style="text-align:center">'
-          + '<div style="background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block" title="Ocupación: '+fmtH(total)+'h de '+fmtH(cap)+'h">'
+          + '<div onclick="openRoleMonthBreakdown(\''+r.replace(/'/g,"\\'")+'\', \''+m+'\')" style="background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block; cursor:pointer;" title="Ocupación por Rol: '+fmtH(total)+'h de '+fmtH(cap)+'h (clic para ver desglose)">'
           + pct + '%'
           + '<div style="font-size:10px; font-weight:400; opacity:0.85">'+fmtH(total)+'h</div>'
           + '</div>'
@@ -2912,15 +3078,14 @@ function renderMatrizHeatmap(){
   return html;
 }
 
-function openPersonMonthBreakdown(personId, monthStr){
-  const p = getPerson(personId);
-  if(!p) return;
-  const cap = personCapacity(p);
+function openRoleMonthBreakdown(roleName, monthStr){
+  const peopleInR = peopleWithRole(roleName);
+  const cap = roleCapacity(roleName);
 
   let projList = [];
   state.projects.forEach(projObj => {
     (projObj.assignments||[]).forEach(a => {
-      if(a.personId === personId && a.projectedByMonth && a.projectedByMonth[monthStr]){
+      if(a.role === roleName && a.projectedByMonth && a.projectedByMonth[monthStr]){
         projList.push({
           projectName: projObj.name,
           hours: Number(a.projectedByMonth[monthStr])
@@ -2929,30 +3094,144 @@ function openPersonMonthBreakdown(personId, monthStr){
     });
   });
 
-  const realEntries = state.realEntries.filter(e => e.personId === personId && e.month === monthStr);
+  const personIds = new Set(peopleInR.map(p=>p.id));
+  const realEntries = state.realEntries.filter(e => personIds.has(e.personId) && e.month === monthStr);
   const totalReal = realEntries.reduce((s,e) => s + Number(e.hours||0), 0);
   const totalProj = projList.reduce((s,x) => s + x.hours, 0);
 
-  let html = '<h3>Desglose de Ocupación: ' + p.name + ' (' + fmtMonth(monthStr) + ')</h3>'
-    + '<div style="margin-bottom:14px; font-size:13px"><span class="muted">Capacidad mensual estimada:</span> <strong>' + cap + ' hrs</strong></div>'
-    + '<div class="section-label">Proyectos Asignados (Proyectado)</div>';
+  let html = '<h3>Desglose de Ocupación por Rol: ' + roleName + ' (' + fmtMonth(monthStr) + ')</h3>'
+    + '<div style="margin-bottom:14px; font-size:13px"><span class="muted">Integrantes en el Rol:</span> <strong>' + peopleInR.length + ' persona(s) (' + (peopleInR.map(p=>p.name).join(', ')||'Sin personas asignadas')+ ')</strong></div>'
+    + '<div style="margin-bottom:14px; font-size:13px"><span class="muted">Capacidad mensual combinada del Rol:</span> <strong>' + cap + ' hrs</strong></div>'
+    + '<div class="section-label">Proyectos Asignados al Rol (Proyección)</div>';
 
   if(projList.length === 0){
-    html += '<div class="muted" style="font-size:13px">Sin asignaciones proyectadas este mes.</div>';
+    html += '<div class="muted" style="font-size:13px">Sin proyecciones asignadas a este rol en este mes.</div>';
   } else {
     html += '<ul>';
     projList.forEach(x => { html += '<li style="margin-bottom:4px; font-size:13px"><strong>' + x.projectName + ':</strong> ' + fmtH(x.hours) + ' hrs</li>'; });
     html += '</ul>';
   }
 
-  html += '<div class="section-label" style="margin-top:16px">Registros Reales de Horas</div>';
+  html += '<div class="section-label" style="margin-top:16px">Registros Reales Ejecutados por el Equipo de este Rol</div>';
   if(realEntries.length === 0){
-    html += '<div class="muted" style="font-size:13px">Sin registros reales imputados.</div>';
+    html += '<div class="muted" style="font-size:13px">Sin registros reales imputados por el equipo este mes.</div>';
   } else {
     html += '<ul>';
     realEntries.forEach(e => {
+      const p = getPerson(e.personId);
       const projName = e.category === 'admin' ? 'Administrativo/Interno' : (state.projects.find(pr => pr.id === e.projectId)?.name || 'Proyecto');
-      html += '<li style="margin-bottom:4px; font-size:13px"><strong>' + projName + ':</strong> ' + fmtH(e.hours) + ' hrs ' + (e.note ? '<em>(' + e.note + ')</em>' : '') + '</li>';
+      html += '<li style="margin-bottom:4px; font-size:13px"><strong>' + (p?p.name:'Persona') + '</strong> en <strong>' + projName + ':</strong> ' + fmtH(e.hours) + ' hrs ' + (e.note ? '<em>(' + e.note + ')</em>' : '') + '</li>';
+    });
+    html += '</ul>';
+  }
+
+  html += '<div class="modal-actions" style="margin-top:20px"><button class="btn btn-primary" onclick="closeModal()">Cerrar</button></div>';
+  document.getElementById('modalBody').innerHTML = html;
+  openModal();
+}
+
+function renderMatrizHeatmapPorLineaNegocio(){
+  const months = getFilteredMonthsListForHeatmap();
+  let html = '<div class="card">'
+    + '<div class="card-header">'
+    + '<div><div class="card-title">📊 Matriz de Disponibilidad y Carga de Trabajo por Rol y Línea de Negocio (Heatmap)</div><div class="card-sub">Visibilidad de ocupación desglosada por Rol en cada Línea de Negocio por mes</div></div>'
+    + '<div style="display:flex; gap:10px; font-size:11.5px; align-items:center; flex-wrap:wrap">'
+    + '<span class="badge" style="background:var(--red-bg); color:var(--red)">🔴 >105% Sobrecargado</span>'
+    + '<span class="badge" style="background:var(--teal-bg); color:var(--teal)">🟢 75%-105% Óptimo</span>'
+    + '<span class="badge" style="background:var(--amber-bg); color:var(--amber)">🟡 <75% Disponible</span>'
+    + '</div>'
+    + '</div>'
+    + '<div style="overflow-x:auto">'
+    + '<table>'
+    + '<thead><tr><th>Línea de Negocio</th><th>Rol / Cargo</th><th>Integrantes</th>';
+
+  months.forEach(m => { html += '<th style="text-align:center">'+fmtMonth(m)+'</th>'; });
+  html += '</tr></thead><tbody>';
+
+  const pairs = getRoleLineaPairs();
+  if(pairs.length === 0){
+    html += '<tr><td colspan="'+(months.length+3)+'" class="empty">No hay datos de Líneas de Negocio y Roles.</td></tr>';
+  } else {
+    pairs.forEach(pair => {
+      const l = pair.linea;
+      const r = pair.role;
+      const peopleInPair = peopleWithRoleAndLinea(r, l);
+      const cap = roleLineaCapacity(r, l);
+
+      html += '<tr>'
+        + '<td><span class="chip" style="font-weight:600">🏷️ '+l+'</span></td>'
+        + '<td><strong>'+r+'</strong></td>'
+        + '<td style="text-align:center"><span class="chip">'+peopleInPair.length+' persona(s)</span></td>';
+
+      months.forEach(m => {
+        const proj = roleLineaProjectHoursInMonth(r, l, m);
+        const real = roleLineaRealHoursInMonth(r, l, m);
+        const total = Math.max(proj, real);
+        const pct = cap > 0 ? Math.round((total / cap) * 100) : 0;
+
+        let bgStyle = 'var(--amber-bg)';
+        let textColor = 'var(--amber)';
+        if(pct > 105){ bgStyle = 'var(--red-bg)'; textColor = 'var(--red)'; }
+        else if(pct >= 75){ bgStyle = 'var(--teal-bg)'; textColor = 'var(--teal)'; }
+
+        html += '<td style="text-align:center">'
+          + '<div onclick="openRoleLineaMonthBreakdown(\''+l.replace(/'/g,"\\'")+'\', \''+r.replace(/'/g,"\\'")+'\', \''+m+'\')" style="background:'+bgStyle+'; color:'+textColor+'; padding:6px 10px; border-radius:8px; font-weight:700; font-family:\'JetBrains Mono\', monospace; display:inline-block; cursor:pointer;" title="Ocupación por Rol en '+l+': '+fmtH(total)+'h de '+fmtH(cap)+'h (clic para ver desglose)">'
+          + pct + '%'
+          + '<div style="font-size:10px; font-weight:400; opacity:0.85">'+fmtH(total)+'h</div>'
+          + '</div>'
+          + '</td>';
+      });
+      html += '</tr>';
+    });
+  }
+
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function openRoleLineaMonthBreakdown(lineaName, roleName, monthStr){
+  const peopleInPair = peopleWithRoleAndLinea(roleName, lineaName);
+  const cap = roleLineaCapacity(roleName, lineaName);
+
+  let projList = [];
+  state.projects.forEach(pr => {
+    if((pr.lineaNegocio || 'Sin línea') === lineaName){
+      (pr.assignments||[]).forEach(a => {
+        if(a.role === roleName && a.projectedByMonth && a.projectedByMonth[monthStr]){
+          projList.push({
+            projectName: pr.name,
+            hours: Number(a.projectedByMonth[monthStr])
+          });
+        }
+      });
+    }
+  });
+
+  const personIds = new Set(peopleInPair.map(p=>p.id));
+  const realEntries = state.realEntries.filter(e => personIds.has(e.personId) && e.month === monthStr);
+
+  let html = '<h3>Desglose de Ocupación: ' + roleName + ' en ' + lineaName + ' (' + fmtMonth(monthStr) + ')</h3>'
+    + '<div style="margin-bottom:14px; font-size:13px"><span class="muted">Integrantes en esta Línea y Rol:</span> <strong>' + peopleInPair.length + ' persona(s) (' + (peopleInPair.map(p=>p.name).join(', ')||'Sin personas asignadas')+ ')</strong></div>'
+    + '<div style="margin-bottom:14px; font-size:13px"><span class="muted">Capacidad mensual combinada:</span> <strong>' + cap + ' hrs</strong></div>'
+    + '<div class="section-label">Proyectos de ' + lineaName + ' Asignados al Rol (Proyección)</div>';
+
+  if(projList.length === 0){
+    html += '<div class="muted" style="font-size:13px">Sin proyecciones asignadas a este rol en esta línea de negocio en este mes.</div>';
+  } else {
+    html += '<ul>';
+    projList.forEach(x => { html += '<li style="margin-bottom:4px; font-size:13px"><strong>' + x.projectName + ':</strong> ' + fmtH(x.hours) + ' hrs</li>'; });
+    html += '</ul>';
+  }
+
+  html += '<div class="section-label" style="margin-top:16px">Registros Reales Ejecutados por Integrantes de esta Línea y Rol</div>';
+  if(realEntries.length === 0){
+    html += '<div class="muted" style="font-size:13px">Sin registros reales imputados este mes.</div>';
+  } else {
+    html += '<ul>';
+    realEntries.forEach(e => {
+      const p = getPerson(e.personId);
+      const projName = e.category === 'admin' ? 'Administrativo/Interno' : (state.projects.find(pr => pr.id === e.projectId)?.name || 'Proyecto');
+      html += '<li style="margin-bottom:4px; font-size:13px"><strong>' + (p?p.name:'Persona') + '</strong> en <strong>' + projName + ':</strong> ' + fmtH(e.hours) + ' hrs ' + (e.note ? '<em>(' + e.note + ')</em>' : '') + '</li>';
     });
     html += '</ul>';
   }
