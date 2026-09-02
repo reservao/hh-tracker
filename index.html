@@ -356,10 +356,18 @@ function initLocalStorageSync(){
   state.userName = localStorage.getItem('hh_username') || '';
   state.viewAsRole = localStorage.getItem('hh_viewAsRole') || 'Administrador';
 
-  state.projects = lsGet('projects') || [];
-  state.people = lsGet('people') || [];
+  const storedProjects = lsGet('projects');
+  const storedPeople = lsGet('people');
+  const isFirstLaunch = storedProjects === null && storedPeople === null;
+
+  state.projects = storedProjects || [];
+  state.people = storedPeople || [];
   state.realEntries = lsGet('real_entries') || [];
   state.config = lsGet('config') || defaultConfig();
+
+  if(isFirstLaunch){
+    loadDemoData();
+  }
 
   state.loaded = true;
   state.capacityMonth = currentMonth();
@@ -367,6 +375,154 @@ function initLocalStorageSync(){
   if(migrateConfigShape()) persistConfig();
   renderTopButtons();
   renderAll();
+}
+
+// ---------- Datos de ejemplo ----------
+// Se cargan automáticamente solo la primera vez que se abre la app en un navegador
+// (localStorage vacío), para que se pueda probar todo sin cargar nada a mano.
+// También se pueden restaurar manualmente desde Configuración si se borran o
+// se quiere volver a mostrar una demo limpia a la empresa.
+function buildDemoData(){
+  const person = (name, role, lineaNegocio) => ({id: uid('pers'), name, role, lineaNegocio});
+  const people = [
+    person('Ricardo Klempau', 'Director de Proyecto', 'GAL'),
+    person('Roberto Larraechea', 'Gerente de Unidad', 'GAL'),
+    person('María Fernández', 'Jefe de Proyecto', 'GAL'),
+    person('Pedro Soto', 'Consultor Senior', 'GAL'),
+    person('Camila Rojas', 'Consultor', 'TCT'),
+    person('Diego Muñoz', 'Analista', 'TCT'),
+    person('Javiera Contreras', 'Jefe de Proyecto', 'Consultoría Minera'),
+    person('Ignacio Vergara', 'Consultor Senior', 'Consultoría Minera')
+  ];
+  const pid = name => people.find(p=>p.name===name).id;
+
+  const config = {
+    unidades: ['Circular HR', 'Expande Minería'],
+    lineasNegocio: [
+      {nombre:'GAL', unidad:'Circular HR'},
+      {nombre:'TCT', unidad:'Circular HR'},
+      {nombre:'Consultoría Minera', unidad:'Expande Minería'}
+    ],
+    targetProjectPct: 80,
+    targetAdminPct: 20,
+    monthlyCapacity: 180,
+    valorUF: 40873.77,
+    tarifasPorRol: [
+      {rol:'Director de Proyecto', valorUF:5.0, vigenciaDesde:'2026-01'},
+      {rol:'Gerente de Unidad', valorUF:4.5, vigenciaDesde:'2026-01'},
+      {rol:'Jefe de Proyecto', valorUF:3.2, vigenciaDesde:'2026-01'},
+      {rol:'Consultor Senior', valorUF:2.8, vigenciaDesde:'2026-01'},
+      {rol:'Consultor', valorUF:2.0, vigenciaDesde:'2026-01'},
+      {rol:'Analista', valorUF:1.5, vigenciaDesde:'2026-01'}
+    ],
+    costoEmpresaPorRol: [
+      {rol:'Director de Proyecto', valorUF:3.0, vigenciaDesde:'2026-01'},
+      {rol:'Gerente de Unidad', valorUF:2.7, vigenciaDesde:'2026-01'},
+      {rol:'Jefe de Proyecto', valorUF:1.9, vigenciaDesde:'2026-01'},
+      {rol:'Consultor Senior', valorUF:1.6, vigenciaDesde:'2026-01'},
+      {rol:'Consultor', valorUF:1.2, vigenciaDesde:'2026-01'},
+      {rol:'Analista', valorUF:0.9, vigenciaDesde:'2026-01'}
+    ]
+  };
+
+  const proj = (name, extra) => Object.assign({id: uid('proj'), tipo:'proyecto', assignments:[], hitosFacturacion:[]}, extra, {name});
+  const projects = [
+    proj('Homologación de Cargos Codelco', {
+      lineaNegocio:'GAL', pep:'2332.N.F99', client:'Codelco', status:'activo',
+      fechaInicio:'2026-06-01', fechaCierre:'2026-11-30', startMonth:'2026-06', endMonth:'2026-11',
+      montoVenta: 540,
+      assignments: [
+        {role:'Jefe de Proyecto', projectedByMonth:{'2026-06':15,'2026-07':15,'2026-08':15,'2026-09':15,'2026-10':15,'2026-11':10}},
+        {role:'Consultor Senior', projectedByMonth:{'2026-06':25,'2026-07':25,'2026-08':25,'2026-09':25,'2026-10':20,'2026-11':15}}
+      ],
+      hitosFacturacion: [
+        {id:uid('hito'), nombre:'Anticipo firma', pctVenta:30, fecha:'2026-06-15', estado:'facturado', fechaFacturado:'2026-06-20'},
+        {id:uid('hito'), nombre:'Entrega diagnóstico', pctVenta:30, fecha:'2026-09-30', estado:'pendiente'},
+        {id:uid('hito'), nombre:'Entrega final', pctVenta:40, fecha:'2026-11-30', estado:'pendiente'}
+      ]
+    }),
+    proj('Estudio de Brechas Salariales', {
+      lineaNegocio:'Consultoría Minera', pep:'4410.E.M12', client:'Expande Minería', status:'activo',
+      fechaInicio:'2026-07-01', fechaCierre:'2026-10-31', startMonth:'2026-07', endMonth:'2026-10',
+      montoVenta: 345,
+      assignments: [
+        {role:'Jefe de Proyecto', projectedByMonth:{'2026-07':18,'2026-08':18,'2026-09':18,'2026-10':16}},
+        {role:'Consultor Senior', projectedByMonth:{'2026-07':22,'2026-08':22,'2026-09':22,'2026-10':14}}
+      ],
+      hitosFacturacion: [
+        {id:uid('hito'), nombre:'Anticipo', pctVenta:40, fecha:'2026-07-10', estado:'facturado', fechaFacturado:'2026-07-12'},
+        {id:uid('hito'), nombre:'Entrega final', pctVenta:60, fecha:'2026-10-31', estado:'pendiente'}
+      ]
+    }),
+    proj('Diseño Organizacional Minera Escondida', {
+      lineaNegocio:'TCT', pep:'5108.T.C03', client:'Minera Escondida', status:'pausa',
+      fechaInicio:'2026-05-01', fechaCierre:'2026-12-31', startMonth:'2026-05', endMonth:'2026-12',
+      montoVenta: 150,
+      assignments: [
+        {role:'Consultor', projectedByMonth:{'2026-05':12,'2026-06':12}},
+        {role:'Analista', projectedByMonth:{'2026-05':8,'2026-06':8}}
+      ],
+      hitosFacturacion: [
+        {id:uid('hito'), nombre:'Anticipo', pctVenta:50, fecha:'2026-05-15', estado:'facturado', fechaFacturado:'2026-05-18'}
+      ]
+    }),
+    proj('Rediseño de Bandas Salariales', {
+      lineaNegocio:'GAL', pep:'1876.N.B21', client:'Aguas Andinas', status:'cerrado',
+      fechaInicio:'2026-01-01', fechaCierre:'2026-05-31', startMonth:'2026-01', endMonth:'2026-05',
+      montoVenta: 128,
+      assignments: [
+        {role:'Jefe de Proyecto', projectedByMonth:{'2026-01':10,'2026-02':10,'2026-03':10,'2026-04':5}},
+        {role:'Consultor Senior', projectedByMonth:{'2026-01':15,'2026-02':15,'2026-03':10}}
+      ],
+      hitosFacturacion: [
+        {id:uid('hito'), nombre:'Anticipo', pctVenta:30, fecha:'2026-01-10', estado:'facturado', fechaFacturado:'2026-01-12'},
+        {id:uid('hito'), nombre:'Entrega final', pctVenta:70, fecha:'2026-05-31', estado:'facturado', fechaFacturado:'2026-06-02'}
+      ]
+    }),
+    proj('Administración Interna Circular HR', {
+      tipo:'admin', lineaNegocio:'GAL', pep:'ADMIN-GAL', client:'Interno', status:'activo',
+      fechaInicio:'', fechaCierre:'', startMonth:'', endMonth:'', montoVenta: 0,
+      assignments: [
+        {role:'Consultor', projectedByMonth:{'2026-06':8,'2026-07':8,'2026-08':8}},
+        {role:'Analista', projectedByMonth:{'2026-06':10,'2026-07':10,'2026-08':10}}
+      ]
+    })
+  ];
+  const projId = name => projects.find(p=>p.name===name).id;
+
+  const entry = (category, projectName, personName, month, hours) => ({
+    id: uid('ent'), category, projectId: projId(projectName), personId: pid(personName),
+    month, hours, note:'', source:'manual', loggedBy:'', createdAt: Date.now()
+  });
+  const realEntries = [
+    ...['2026-06','2026-07','2026-08'].map((m,i)=>entry('project','Homologación de Cargos Codelco','María Fernández',m,[14,15,16][i])),
+    ...['2026-06','2026-07','2026-08'].map((m,i)=>entry('project','Homologación de Cargos Codelco','Pedro Soto',m,[24,26,25][i])),
+    ...['2026-07','2026-08'].map((m,i)=>entry('project','Estudio de Brechas Salariales','Javiera Contreras',m,[17,19][i])),
+    ...['2026-07','2026-08'].map((m,i)=>entry('project','Estudio de Brechas Salariales','Ignacio Vergara',m,[21,23][i])),
+    ...['2026-05','2026-06'].map((m,i)=>entry('project','Diseño Organizacional Minera Escondida','Camila Rojas',m,[11,9][i])),
+    ...['2026-05','2026-06'].map((m,i)=>entry('project','Diseño Organizacional Minera Escondida','Diego Muñoz',m,[7,6][i])),
+    ...['2026-01','2026-02','2026-03','2026-04'].map((m,i)=>entry('project','Rediseño de Bandas Salariales','María Fernández',m,[11,9,10,6][i])),
+    ...['2026-01','2026-02','2026-03'].map((m,i)=>entry('project','Rediseño de Bandas Salariales','Pedro Soto',m,[16,14,11][i])),
+    ...['2026-06','2026-07','2026-08'].map((m,i)=>entry('admin','Administración Interna Circular HR','Camila Rojas',m,[9,7,8][i])),
+    ...['2026-06','2026-07','2026-08'].map((m,i)=>entry('admin','Administración Interna Circular HR','Diego Muñoz',m,[11,9,10][i]))
+  ];
+
+  return {people, config, projects, realEntries};
+}
+function loadDemoData(){
+  const demo = buildDemoData();
+  state.people = demo.people;
+  state.config = demo.config;
+  state.projects = demo.projects;
+  state.realEntries = demo.realEntries;
+  persistPeople(); persistConfig(); persistProjects(); persistEntries();
+}
+function restoreDemoData(){
+  if(!confirm('¿Restaurar los datos de ejemplo? Esto reemplaza TODOS los proyectos, personas, tarifas y registros actuales — no se puede deshacer (salvo que tengas un respaldo JSON).')) return;
+  loadDemoData();
+  renderTopButtons();
+  renderAll();
+  showToast('Datos de ejemplo restaurados.');
 }
 
 function migrateProjectPeople(){
@@ -3857,6 +4013,7 @@ function renderConfig(){
     + '<div style="display:flex; gap:10px; flex-wrap:wrap;">'
     + '<button class="btn btn-secondary btn-sm" onclick="downloadJSONBackup()">📥 Descargar Respaldo JSON</button>'
     + '<label class="btn btn-secondary btn-sm" style="margin-bottom:0; cursor:pointer;">📤 Cargar Respaldo JSON<input type="file" accept=".json" style="display:none" onchange="uploadJSONBackup(event)"></label>'
+    + '<button class="btn btn-ghost btn-sm" onclick="restoreDemoData()">🔄 Restaurar datos de ejemplo</button>'
     + '</div></div>';
 
   const financeCard = renderFinanceConfigCard();
