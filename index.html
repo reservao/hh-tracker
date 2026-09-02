@@ -295,7 +295,7 @@ function parseMonthLabel(label){ // 'marzo 2026' / 'MarzO   2026' / 'Marzo, 2026
 }
 
 // ---------- Storage (Firebase Firestore) ----------
-function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, tarifasPorRol:[], costoEmpresaPorRol:[]}; }
+function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, tarifasPorRol:[], costoEmpresaPorRol:[], metasFacturacion:[]}; }
 function migrateConfigShape(){
   if(!state.config.unidades) state.config.unidades=[];
   if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
@@ -307,6 +307,7 @@ function migrateConfigShape(){
   if(!state.config.valorUF){ state.config.valorUF = 40873.77; changed = true; }
   if(!state.config.tarifasPorRol){ state.config.tarifasPorRol = []; changed = true; }
   if(!state.config.costoEmpresaPorRol){ state.config.costoEmpresaPorRol = []; changed = true; }
+  if(!state.config.metasFacturacion){ state.config.metasFacturacion = []; changed = true; }
   return changed;
 }
 function getUnidadForLinea(lineaNombre){
@@ -318,6 +319,22 @@ function lineasDeUnidad(unidad){
 }
 function peopleInLinea(lineaNombre){ return state.people.filter(p=>p.lineaNegocio===lineaNombre); }
 function peopleInUnidad(unidad){ return state.people.filter(p=>getUnidadForLinea(p.lineaNegocio)===unidad); }
+function projectsInLinea(lineaNombre){ return state.projects.filter(p=>p.tipo!=='admin' && p.lineaNegocio===lineaNombre); }
+function projectsInUnidad(unidad){ return state.projects.filter(p=>p.tipo!=='admin' && getUnidadForLinea(p.lineaNegocio)===unidad); }
+function projectsInScope(tipo, nombre){ return tipo==='unidad' ? projectsInUnidad(nombre) : projectsInLinea(nombre); }
+function peopleInScope(tipo, nombre){ return tipo==='unidad' ? peopleInUnidad(nombre) : peopleInLinea(nombre); }
+// Suma facturada (hitos marcados "facturado") de un conjunto de proyectos, en un año dado.
+function facturadoUFEnAnio(projects, year){
+  let total = 0;
+  projects.forEach(p=>{
+    (p.hitosFacturacion||[]).forEach(h=>{
+      if(h.estado!=='facturado') return;
+      const fecha = h.fechaFacturado || h.fecha || '';
+      if(!year || fecha.slice(0,4)===String(year)) total += Number(p.montoVenta||0)*Number(h.pctVenta||0)/100;
+    });
+  });
+  return total;
+}
 function projectsForPeopleIds(personIds){
   return state.projects.filter(p=>(p.assignments||[]).some(a=>personIds.has(a.personId)));
 }
@@ -422,10 +439,15 @@ function buildDemoData(){
       {rol:'Consultor Senior', valorUF:1.6, vigenciaDesde:'2026-01'},
       {rol:'Consultor', valorUF:1.2, vigenciaDesde:'2026-01'},
       {rol:'Analista', valorUF:0.9, vigenciaDesde:'2026-01'}
+    ],
+    metasFacturacion: [
+      {tipo:'unidad', nombre:'Circular HR', periodo:'2026', metaUF:900},
+      {tipo:'unidad', nombre:'Expande Minería', periodo:'2026', metaUF:300},
+      {tipo:'linea', nombre:'GAL', periodo:'2026', metaUF:600}
     ]
   };
 
-  const proj = (name, extra) => Object.assign({id: uid('proj'), tipo:'proyecto', assignments:[], hitosFacturacion:[]}, extra, {name});
+  const proj = (name, extra) => Object.assign({id: uid('proj'), tipo:'proyecto', assignments:[], hitosFacturacion:[], costosAdicionales:[]}, extra, {name});
   const projects = [
     proj('Homologación de Cargos Codelco', {
       lineaNegocio:'GAL', pep:'2332.N.F99', client:'Codelco', status:'activo',
@@ -439,6 +461,10 @@ function buildDemoData(){
         {id:uid('hito'), nombre:'Anticipo firma', pctVenta:30, fecha:'2026-06-15', estado:'facturado', fechaFacturado:'2026-06-20'},
         {id:uid('hito'), nombre:'Entrega diagnóstico', pctVenta:30, fecha:'2026-09-30', estado:'pendiente'},
         {id:uid('hito'), nombre:'Entrega final', pctVenta:40, fecha:'2026-11-30', estado:'pendiente'}
+      ],
+      costosAdicionales: [
+        {id:uid('costo'), concepto:'Consultor externo — validación de escalas', categoria:'consultor_externo', modalidad:'tarifa_hora', tarifaUFHora:1.4, horas:20, estado:'incurrido'},
+        {id:uid('costo'), concepto:'Licencia software de compensaciones', categoria:'material', modalidad:'monto_fijo', montoUF:8, estado:'estimado'}
       ]
     }),
     proj('Estudio de Brechas Salariales', {
@@ -794,6 +820,17 @@ function tarifaEfectivaProject(project){
   if(venta > 0 && horasProsp > 0) return venta / horasProsp;
   return null; // sin línea base: se usa el catálogo por rol como referencia
 }
+// Costos adicionales del proyecto que no son horas del equipo interno: materiales,
+// consultores externos (por hora o a monto fijo), licencias, viajes, etc.
+function costoAdicionalMonto(c){
+  return c.modalidad==='tarifa_hora' ? Number(c.tarifaUFHora||0)*Number(c.horas||0) : Number(c.montoUF||0);
+}
+function costosAdicionalesIncurridos(project){
+  return (project.costosAdicionales||[]).filter(c=>c.estado==='incurrido').reduce((s,c)=>s+costoAdicionalMonto(c),0);
+}
+function costosAdicionalesEstimados(project){
+  return (project.costosAdicionales||[]).filter(c=>c.estado==='estimado').reduce((s,c)=>s+costoAdicionalMonto(c),0);
+}
 function costoDevengadoProject(project){
   let costo = 0;
   state.realEntries.forEach(e=>{
@@ -803,6 +840,7 @@ function costoDevengadoProject(project){
     if(!role) return;
     costo += Number(e.hours||0) * costoEmpresaCatalogoRol(role, e.month);
   });
+  costo += costosAdicionalesIncurridos(project);
   return costo;
 }
 function ingresoDevengadoProject(project){
@@ -834,6 +872,7 @@ function costoPorTerminarProject(project){
     const restante = Math.max(0, totalProyectado - realDelRol);
     costo += restante * costoEmpresaCatalogoRol(a.role, mesRef);
   });
+  costo += costosAdicionalesEstimados(project);
   return costo;
 }
 // Las tres lecturas de margen de la sección 5.1: cada una responde una pregunta
@@ -866,6 +905,37 @@ function pctBadgeColor(pct){
   if(pct < 15) return 'var(--red)';
   if(pct < 30) return 'var(--amber)';
   return 'var(--teal)';
+}
+
+// ---------- Metas de facturación por Unidad / Línea de Negocio ----------
+// El "monto por persona" es un promedio referencial (meta ÷ dotación), no una cuota
+// justa por persona: roles distintos facturan a tarifas distintas. Se etiqueta así
+// en la interfaz para que no se lea como una meta individual real.
+function metaScopeStats(tipo, nombre, year){
+  const projects = projectsInScope(tipo, nombre);
+  const projectsConVenta = projects.filter(p=>Number(p.montoVenta||0)>0);
+  const venta = projectsConVenta.reduce((s,p)=>s+Number(p.montoVenta||0),0);
+  const facturado = facturadoUFEnAnio(projects, year);
+  const numPersonas = peopleInScope(tipo, nombre).length;
+  const numProyectos = projectsConVenta.length;
+
+  let margenPondSum = 0, margenPondPeso = 0;
+  projectsConVenta.forEach(p=>{
+    const m = margenesProject(p);
+    if(m.proyectadoCierre.pct!=null){ margenPondSum += m.proyectadoCierre.pct*p.montoVenta; margenPondPeso += p.montoVenta; }
+  });
+  const margenPromedioPct = margenPondPeso>0 ? (margenPondSum/margenPondPeso) : null;
+  const promedioPorProyecto = numProyectos>0 ? (venta/numProyectos) : 0;
+
+  return {venta, facturado, numPersonas, numProyectos, margenPromedioPct, promedioPorProyecto};
+}
+// % del año ya transcurrido (para comparar el avance real contra el ritmo esperado).
+function fraccionAnioTranscurrida(year){
+  const hoy = new Date();
+  if(String(hoy.getFullYear()) !== String(year)) return hoy.getFullYear() > Number(year) ? 1 : 0;
+  const inicio = new Date(hoy.getFullYear(), 0, 1);
+  const fin = new Date(hoy.getFullYear()+1, 0, 1);
+  return (hoy - inicio) / (fin - inicio);
 }
 
 // ---------- Facturación: hitos y descalce esfuerzo-facturación ----------
@@ -1433,6 +1503,46 @@ function renderDashboardCharts(){
     });
   }
 
+  // 1a-bis. Curva de Facturación del Portafolio (plan según fecha de hitos vs. real facturado)
+  const ctxFactPortafolio = document.getElementById('chartCurvaFacturacionPortafolio');
+  if(ctxFactPortafolio){
+    if(activeCharts.facturacionPortafolio){ activeCharts.facturacionPortafolio.destroy(); activeCharts.facturacionPortafolio=null; }
+    const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const planF = Array(12).fill(0);
+    const realF = Array(12).fill(0);
+    state.projects.forEach(p=>{
+      if(p.tipo==='admin' || !p.montoVenta) return;
+      (p.hitosFacturacion||[]).forEach(h=>{
+        const montoHito = Number(p.montoVenta||0)*Number(h.pctVenta||0)/100;
+        if(h.fecha && isMonthInFilter(h.fecha.slice(0,7))){
+          const mNum = parseInt(h.fecha.slice(5,7),10);
+          if(mNum>=1 && mNum<=12) planF[mNum-1] += montoHito;
+        }
+        if(h.estado==='facturado'){
+          const fechaReal = h.fechaFacturado || h.fecha;
+          if(fechaReal && isMonthInFilter(fechaReal.slice(0,7))){
+            const mNum = parseInt(fechaReal.slice(5,7),10);
+            if(mNum>=1 && mNum<=12) realF[mNum-1] += montoHito;
+          }
+        }
+      });
+    });
+    let cumPlan=0, cumReal=0;
+    const cumPlanData=[], cumRealData=[];
+    for(let i=0;i<12;i++){ cumPlan+=planF[i]; cumReal+=realF[i]; cumPlanData.push(cumPlan); cumRealData.push(cumReal); }
+    activeCharts.facturacionPortafolio = new Chart(ctxFactPortafolio, {
+      type:'line',
+      data:{ labels: monthsShort, datasets:[
+        {label:'Planificado (según hitos)', data:cumPlanData, borderColor:'#1E2A5E', backgroundColor:'rgba(30,42,94,0.08)', fill:true, tension:0.25},
+        {label:'Facturado real', data:cumRealData, borderColor:'#1E9E8B', backgroundColor:'rgba(30,158,139,0.12)', fill:true, tension:0.25}
+      ]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{position:'top'}, tooltip:{callbacks:{label:function(c){ return c.dataset.label+': '+fmtUF(c.raw); }}} },
+        scales:{ y:{ beginAtZero:true, ticks:{ callback:function(v){ return fmtUF(v); } } } }
+      }
+    });
+  }
+
   // 1b. Gráfico Mensual Solo Proyectos Cliente
   const ctxMonthProj = document.getElementById('chartMensualProyectos');
   if(ctxMonthProj){
@@ -1549,6 +1659,8 @@ function renderDashboardCharts(){
   createUnidadChart('chartUnidadesProyectos', 'unidadesProyectosChart', 'proyectos');
   // 2c. Unidad de Negocio: Solo Administración Interna
   createUnidadChart('chartUnidadesAdmin', 'unidadesAdminChart', 'admin');
+  // 2d. Curva de facturación acumulada por Unidad de Negocio
+  createFacturacionMultiLineChart('chartFacturacionPorUnidad', 'facturacionPorUnidadChart', 'unidad');
 
   // 3a. Línea de Negocio: Consolidado
   createLineaChart('chartLineasConsolidado', 'lineasConsolidadoChart', 'all');
@@ -1556,6 +1668,47 @@ function renderDashboardCharts(){
   createLineaChart('chartLineasProyectos', 'lineasProyectosChart', 'proyectos');
   // 3c. Línea de Negocio: Solo Administración Interna
   createLineaChart('chartLineasAdmin', 'lineasAdminChart', 'admin');
+  // 3d. Curva de facturación acumulada por Línea de Negocio
+  createFacturacionMultiLineChart('chartFacturacionPorLinea', 'facturacionPorLineaChart', 'linea');
+}
+
+// Curva de facturación acumulada (real facturado) con una línea por Unidad o por
+// Línea de Negocio, para comparar el ritmo de facturación entre ellas.
+function createFacturacionMultiLineChart(canvasId, chartKey, scopeType){
+  const ctx = document.getElementById(canvasId);
+  if(!ctx) return;
+  if(activeCharts[chartKey]){ activeCharts[chartKey].destroy(); activeCharts[chartKey]=null; }
+
+  const nombres = scopeType==='unidad' ? (state.config.unidades||[]) : (state.config.lineasNegocio||[]).map(l=>l.nombre);
+  const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const palette = ['#1E2A5E','#1E9E8B','#DB9A2E','#D6493E','#7C5CBF','#2E86AB','#C2185B','#43A047'];
+
+  const datasets = nombres.map((nombre, idx)=>{
+    const projects = scopeType==='unidad' ? projectsInUnidad(nombre) : projectsInLinea(nombre);
+    const monthly = Array(12).fill(0);
+    projects.forEach(p=>{
+      if(!p.montoVenta) return;
+      (p.hitosFacturacion||[]).forEach(h=>{
+        if(h.estado!=='facturado') return;
+        const fecha = h.fechaFacturado || h.fecha;
+        if(!fecha || !isMonthInFilter(fecha.slice(0,7))) return;
+        const mNum = parseInt(fecha.slice(5,7),10);
+        if(mNum>=1 && mNum<=12) monthly[mNum-1] += Number(p.montoVenta||0)*Number(h.pctVenta||0)/100;
+      });
+    });
+    let cum=0; const cumData = monthly.map(v=>{ cum+=v; return cum; });
+    return { label: nombre, data: cumData, borderColor: palette[idx%palette.length], backgroundColor: 'transparent', tension: 0.25 };
+  });
+
+  activeCharts[chartKey] = new Chart(ctx, {
+    type: 'line',
+    data: { labels: monthsShort, datasets: datasets.length ? datasets : [{label:'Sin datos', data:Array(12).fill(0), borderColor:'#94A3B8'}] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: function(c){ return c.dataset.label+': '+fmtUF(c.raw); } } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: function(v){ return fmtUF(v); } } } }
+    }
+  });
 }
 
 function createUnidadChart(canvasId, chartKey, filterType){
@@ -1715,6 +1868,12 @@ function renderDashboardVisualsHeader(){
     + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaSPortafolio"></canvas></div>'
     + '</div>'
 
+    + '<div class="card" style="margin-bottom:20px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">💵 Curva de Facturación del Portafolio — Acumulado</div>'
+    + '<div class="card-sub" style="font-size:12px">Monto planificado (según fecha de hitos) vs. monto realmente facturado, acumulado mes a mes</div>'
+    + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaFacturacionPortafolio"></canvas></div>'
+    + '</div>'
+
     + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:24px;">'
     + '<div class="card" style="margin-bottom:0;">'
     + '<div class="card-title" style="font-size:15px; font-weight:700">📂 Evolución Mensual: Solo Proyectos Cliente</div>'
@@ -1757,6 +1916,12 @@ function renderDashboardVisualsHeader(){
     + '</div>'
     + '</div>'
 
+    + '<div class="card" style="margin-bottom:24px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">💵 Curva de Facturación por Unidad de Negocio — Acumulado</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Monto facturado acumulado mes a mes, una línea por Unidad de Negocio</div>'
+    + '<div style="height:260px; position:relative"><canvas id="chartFacturacionPorUnidad"></canvas></div>'
+    + '</div>'
+
     // SEPARADOR 2: LÍNEA DE NEGOCIO
     + '<div style="display:flex; align-items:center; margin: 32px 0 20px 0;">'
     + '<div style="flex:1; border-top: 1px dashed var(--border);"></div>'
@@ -1783,6 +1948,12 @@ function renderDashboardVisualsHeader(){
     + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Muestra únicamente las horas de Administración Interna por Línea de Negocio</div>'
     + '<div style="height:240px; position:relative"><canvas id="chartLineasAdmin"></canvas></div>'
     + '</div>'
+    + '</div>'
+
+    + '<div class="card" style="margin-bottom:24px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">💵 Curva de Facturación por Línea de Negocio — Acumulado</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Monto facturado acumulado mes a mes, una línea por Línea de Negocio</div>'
+    + '<div style="height:260px; position:relative"><canvas id="chartFacturacionPorLinea"></canvas></div>'
     + '</div>'
 
     // SEPARADOR 3: TABLAS DE CUMPLIMIENTO
@@ -2725,12 +2896,22 @@ function renderPortfolioRentabilidad(){
     const pa = a.m.proyectadoCierre.pct==null ? 999 : a.m.proyectadoCierre.pct;
     const pb = b.m.proyectadoCierre.pct==null ? 999 : b.m.proyectadoCierre.pct;
     return pa-pb;
-  }).slice(0,5);
+  });
   const rankingRows = ranking.map(({p,m})=>{
-    const pct = m.proyectadoCierre.pct;
+    const pctDev = m.devengado.pct;
+    const pctProy = m.proyectadoCierre.pct;
+    const tarifaEfectiva = tarifaEfectivaProject(p);
+    const descalce = projectDescalce(p);
+    const descalceLabel = descalce && descalce.brecha>10
+      ? '<span style="color:'+(descalce.brecha>20?'var(--red)':'var(--amber)')+'; font-weight:700">'+descalce.brecha.toFixed(0)+' pts</span>'
+      : '<span class="muted">—</span>';
     return '<tr class="expand-toggle" onclick="openProjectDetail(\''+p.id+'\')">'
-      + '<td><b>'+p.name+'</b></td>'
-      + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pct)+'; font-weight:700">'+(pct==null?'—':pct.toFixed(0)+'%')+'</td>'
+      + '<td><b>'+p.name+'</b><div class="muted" style="font-size:11px">'+(p.client||'Sin cliente')+'</div></td>'
+      + '<td class="mono" style="text-align:right">'+fmtUF(m.venta)+'</td>'
+      + '<td class="mono" style="text-align:right">'+(tarifaEfectiva!=null?fmtUF(tarifaEfectiva)+'/h':'—')+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pctDev)+'; font-weight:700">'+(pctDev==null?'—':pctDev.toFixed(0)+'%')+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pctProy)+'; font-weight:700">'+(pctProy==null?'—':pctProy.toFixed(0)+'%')+'</td>'
+      + '<td class="mono" style="text-align:right">'+descalceLabel+'</td>'
       + '</tr>';
   }).join('');
 
@@ -2751,8 +2932,8 @@ function renderPortfolioRentabilidad(){
     + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Facturado / Pendiente</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(facturadoUF)+' / '+fmtUF(pendienteUF)+'</div></div>'
     + (verCosto ? '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Costo devengado</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(costoDevengado)+'</div></div>' : '')
     + '</div>'
-    + '<div class="section-label" style="margin-top:0">🚦 Ranking de riesgo (peor margen proyectado primero)</div>'
-    + '<table><thead><tr><th>Proyecto</th><th class="num">Margen proyectado al cierre</th></tr></thead><tbody>'+rankingRows+'</tbody></table>'
+    + '<div class="section-label" style="margin-top:0">🚦 Rentabilidad por Proyecto (peor margen proyectado primero)</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Proyecto</th><th class="num">Venta</th><th class="num">Tarifa efectiva</th><th class="num">Margen devengado</th><th class="num">Margen proyectado</th><th class="num">Descalce</th></tr></thead><tbody>'+rankingRows+'</tbody></table></div>'
     + '</div>';
 }
 
@@ -2790,6 +2971,94 @@ function renderDashVencimientosFacturacion(){
     + '</div>';
 }
 
+// Metas de facturación por Unidad/Línea: avance, falta, desviación vs. ritmo esperado
+// del año, promedio por proyecto y el monto/margen que le tocaría a cada persona en
+// promedio (referencial — no una cuota justa por persona, ver nota en metaScopeStats).
+function renderMetasFacturacion(){
+  const metas = state.config.metasFacturacion||[];
+  if(metas.length===0) return '';
+  const verCosto = canSeeCostoEmpresa();
+
+  const cards = metas.map(meta=>{
+    const stats = metaScopeStats(meta.tipo, meta.nombre, meta.periodo);
+    const avancePct = meta.metaUF>0 ? (stats.facturado/meta.metaUF*100) : 0;
+    const falta = Math.max(0, meta.metaUF - stats.facturado);
+    const fraccion = fraccionAnioTranscurrida(meta.periodo);
+    const esperadoAFecha = meta.metaUF * fraccion;
+    const desviacion = stats.facturado - esperadoAFecha;
+    const desviacionColor = desviacion >= 0 ? 'var(--teal)' : 'var(--red)';
+    const metaPorPersona = stats.numPersonas>0 ? (meta.metaUF/stats.numPersonas) : null;
+    const margenEstimadoPorPersona = (metaPorPersona!=null && stats.margenPromedioPct!=null) ? metaPorPersona*(stats.margenPromedioPct/100) : null;
+    const icon = meta.tipo==='unidad' ? '🏢' : '🏷️';
+
+    return '<div class="card" style="margin-bottom:16px">'
+      + '<div class="card-header"><div><div class="card-title">'+icon+' '+meta.nombre+' — Meta '+meta.periodo+'</div>'
+      + '<div class="card-sub">'+stats.numProyectos+' proyecto(s) con venta · '+stats.numPersonas+' persona(s) en el equipo</div></div>'
+      + '<button class="btn btn-ghost btn-sm" onclick="deleteMetaFacturacionByRef(\''+meta.tipo+'\',\''+meta.nombre.replace(/'/g,"\\'")+'\',\''+meta.periodo+'\')">Eliminar meta</button></div>'
+      + '<div style="max-width:560px; margin-bottom:14px">'+gauge(meta.metaUF, stats.facturado)+'</div>'
+      + '<div style="display:flex; gap:24px; flex-wrap:wrap">'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Facturado / Meta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(stats.facturado)+' / '+fmtUF(meta.metaUF)+'</div></div>'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Falta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(falta)+'</div></div>'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Desviación vs. ritmo esperado ('+(fraccion*100).toFixed(0)+'% del año)</div><div class="mono" style="font-size:17px; font-weight:700; color:'+desviacionColor+'">'+(desviacion>=0?'+':'')+fmtUF(desviacion)+'</div></div>'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Promedio por proyecto</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(stats.promedioPorProyecto)+'</div></div>'
+      + '</div>'
+      + '<div class="section-label">👤 Referencial por persona <span class="muted" style="font-weight:400; text-transform:none; font-size:11.5px">(meta ÷ dotación — no es una cuota individual justa, distintos roles facturan distinto)</span></div>'
+      + '<div style="display:flex; gap:24px; flex-wrap:wrap">'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Meta de facturación / persona</div><div class="mono" style="font-size:17px; font-weight:700">'+(metaPorPersona!=null?fmtUF(metaPorPersona):'—')+'</div></div>'
+      + (verCosto ? '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen estimado / persona</div><div class="mono" style="font-size:17px; font-weight:700">'+(margenEstimadoPorPersona!=null?fmtUF(margenEstimadoPorPersona):'—')+'</div></div>' : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+
+  return '<div class="section-label" style="margin-top:24px">🎯 Metas de Facturación</div>' + cards;
+}
+function deleteMetaFacturacionByRef(tipo, nombre, periodo){
+  if(!confirm('¿Eliminar esta meta de facturación?')) return;
+  state.config.metasFacturacion = (state.config.metasFacturacion||[]).filter(m=>!(m.tipo===tipo && m.nombre===nombre && m.periodo===periodo));
+  persistConfig(); renderAll();
+}
+
+// Ocupación por rol: cuánta capacidad tiene cada rol este mes y cuánto ya está
+// comprometido el próximo mes según lo proyectado — responde "¿qué rol tiene
+// espacio para tomar un proyecto nuevo?". Es por rol (no por persona individual)
+// porque las proyecciones de horas del sistema se cargan a nivel de rol, no de
+// persona específica — mezclar niveles daría una falsa precisión.
+function renderOcupacionEquipo(){
+  const roles = getAllRoles();
+  if(roles.length===0) return '';
+  const mesActual = currentMonth();
+  const [y,m] = mesActual.split('-').map(Number);
+  const mesSiguiente = (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0'));
+
+  const rows = roles.map(r=>{
+    const cap = roleCapacity(r);
+    const realEsteMes = roleProjectHoursInMonth(r, mesActual) + roleAdminHoursInMonth(r, mesActual);
+    let proyectadoProxMes = 0;
+    state.projects.forEach(pr=>{
+      (pr.assignments||[]).forEach(a=>{
+        if(a.role===r) proyectadoProxMes += Number((a.projectedByMonth||{})[mesSiguiente]||0);
+      });
+    });
+    const pctEsteMes = cap>0 ? (realEsteMes/cap*100) : 0;
+    const pctProxMes = cap>0 ? (proyectadoProxMes/cap*100) : 0;
+    const colorProx = pctProxMes>100 ? 'var(--red)' : (pctProxMes>=70 ? 'var(--amber)' : 'var(--teal)');
+    const disponible = Math.max(0, cap - proyectadoProxMes);
+    return '<tr>'
+      + '<td><b>'+r+'</b></td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(cap)+' h</td>'
+      + '<td class="mono" style="text-align:right">'+pctEsteMes.toFixed(0)+'%</td>'
+      + '<td class="mono" style="text-align:right; color:'+colorProx+'; font-weight:700">'+pctProxMes.toFixed(0)+'%</td>'
+      + '<td class="mono" style="text-align:right; color:'+(disponible>0?'var(--teal)':'var(--muted)')+'">'+fmtH(disponible)+' h</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card" style="margin-bottom:20px">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:4px">🧑‍💼 Ocupación del Equipo por Rol</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">¿Qué rol tiene capacidad disponible para tomar un proyecto nuevo el próximo mes ('+fmtMonth(mesSiguiente)+')?</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Rol</th><th class="num">Capacidad mensual</th><th class="num">% ocupado este mes</th><th class="num">% comprometido próx. mes</th><th class="num">Disponible próx. mes</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    + '</div>';
+}
+
 function renderDashPersonComplianceTable(){
   if(state.people.length===0) return '';
   const rows = state.people.map(person=>{
@@ -2824,6 +3093,8 @@ function renderDashGlobal(){
 
   html += renderPortfolioRentabilidad();
   html += renderDashVencimientosFacturacion();
+  html += renderMetasFacturacion();
+  html += renderOcupacionEquipo();
 
   html += '<div class="section-label">Consolidado General del Portafolio (Horas Hombre)</div>';
 
@@ -3150,6 +3421,30 @@ function renderFinanzasProyecto(p){
     + (hitos.length ? '<table><thead><tr><th>Hito</th><th class="num">% Venta</th><th class="num">Monto</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody>'+hitoRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin hitos de facturación definidos.</p>')
     + '<div style="margin-top:10px"><button class="btn btn-secondary btn-sm" onclick="openHitoModal(\''+p.id+'\')">+ Agregar hito de facturación</button></div>';
 
+  // Costos adicionales: materiales, consultores externos (por hora o monto fijo), etc.
+  // No son horas del equipo interno, así que se llevan aparte y se suman al costo del
+  // proyecto (devengado si ya se incurrió, por terminar si es una estimación futura).
+  html += '<div class="section-label" style="margin-top:20px">📦 Costos Adicionales (materiales, consultores externos, etc.)</div>';
+  if(!verCosto){
+    html += '<p class="muted" style="font-size:13px">🔒 Oculto para el rol "'+state.viewAsRole+'" — mismo criterio que el costo empresa.</p>';
+  } else {
+    const costos = p.costosAdicionales || [];
+    const costoRows = costos.map(c=>{
+      const monto = costoAdicionalMonto(c);
+      const modalidadLabel = c.modalidad==='tarifa_hora' ? fmtUF(c.tarifaUFHora)+'/h × '+fmtH(c.horas)+'h' : 'Monto fijo';
+      return '<tr>'
+        + '<td>'+c.concepto+'</td>'
+        + '<td>'+({material:'Material', consultor_externo:'Consultor externo', otro:'Otro'}[c.categoria]||'Otro')+'</td>'
+        + '<td class="muted" style="font-size:12px">'+modalidadLabel+'</td>'
+        + '<td class="mono" style="text-align:right">'+fmtUF(monto)+'</td>'
+        + '<td><span class="badge '+(c.estado==='incurrido'?'activo':'iniciar')+'">'+(c.estado==='incurrido'?'Incurrido':'Estimado')+'</span></td>'
+        + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteCostoAdicional(\''+p.id+'\',\''+c.id+'\')">Eliminar</button></td>'
+        + '</tr>';
+    }).join('');
+    html += (costos.length ? '<table><thead><tr><th>Concepto</th><th>Categoría</th><th>Modalidad</th><th class="num">Monto</th><th>Estado</th><th></th></tr></thead><tbody>'+costoRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin costos adicionales registrados.</p>')
+      + '<div style="margin-top:10px"><button class="btn btn-secondary btn-sm" onclick="openCostoAdicionalModal(\''+p.id+'\')">+ Agregar costo adicional</button></div>';
+  }
+
   return html;
 }
 
@@ -3183,6 +3478,48 @@ function deleteHitoFacturacion(projectId, hitoId){
   if(!confirm('¿Eliminar este hito de facturación?')) return;
   const p = state.projects.find(x=>x.id===projectId);
   p.hitosFacturacion = (p.hitosFacturacion||[]).filter(x=>x.id!==hitoId);
+  persistProjects(); renderAll();
+}
+
+function openCostoAdicionalModal(projectId){
+  document.getElementById('modalBody').innerHTML = '<h3>Nuevo costo adicional</h3>'
+    + '<div class="form-grid">'
+    + '<div class="field" style="grid-column:1/-1"><label>Concepto</label><input id="f_costo_concepto" placeholder="Ej: Consultor externo UX / Licencia software / Viajes"></div>'
+    + '<div class="field"><label>Categoría</label><select id="f_costo_categoria"><option value="consultor_externo">Consultor externo</option><option value="material">Material</option><option value="otro">Otro</option></select></div>'
+    + '<div class="field"><label>Estado</label><select id="f_costo_estado"><option value="incurrido">Incurrido (ya se gastó)</option><option value="estimado">Estimado (falta por gastar)</option></select></div>'
+    + '<div class="field"><label>Modalidad</label><select id="f_costo_modalidad" onchange="document.getElementById(\'f_costo_fijo_wrap\').style.display=this.value===\'monto_fijo\'?\'\':\'none\'; document.getElementById(\'f_costo_hora_wrap\').style.display=this.value===\'tarifa_hora\'?\'\':\'none\';"><option value="monto_fijo">Monto fijo / contrato</option><option value="tarifa_hora">Tarifa por hora</option></select></div>'
+    + '<div class="field" id="f_costo_fijo_wrap"><label>Monto (UF)</label><input id="f_costo_monto" type="number" min="0" step="0.1" value="0"></div>'
+    + '<div class="field" id="f_costo_hora_wrap" style="display:none"><label>Tarifa (UF/hora)</label><input id="f_costo_tarifa" type="number" min="0" step="0.1" value="0"></div>'
+    + '<div class="field" id="f_costo_horas_wrap" style="display:none"><label>Horas estimadas</label><input id="f_costo_horas" type="number" min="0" step="1" value="0"></div>'
+    + '</div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveCostoAdicional(\''+projectId+'\')">Guardar</button></div>';
+  openModal();
+  document.getElementById('f_costo_modalidad').addEventListener('change', function(){
+    document.getElementById('f_costo_horas_wrap').style.display = this.value==='tarifa_hora' ? '' : 'none';
+  });
+}
+function saveCostoAdicional(projectId){
+  const p = state.projects.find(x=>x.id===projectId);
+  const concepto = document.getElementById('f_costo_concepto').value.trim();
+  const categoria = document.getElementById('f_costo_categoria').value;
+  const estado = document.getElementById('f_costo_estado').value;
+  const modalidad = document.getElementById('f_costo_modalidad').value;
+  if(!concepto){ showToast('Ingresa un concepto.'); return; }
+  const entry = {id:uid('costo'), concepto, categoria, estado, modalidad};
+  if(modalidad==='tarifa_hora'){
+    entry.tarifaUFHora = Number(document.getElementById('f_costo_tarifa').value)||0;
+    entry.horas = Number(document.getElementById('f_costo_horas').value)||0;
+  } else {
+    entry.montoUF = Number(document.getElementById('f_costo_monto').value)||0;
+  }
+  if(!p.costosAdicionales) p.costosAdicionales=[];
+  p.costosAdicionales.push(entry);
+  persistProjects(); closeModal(); renderAll(); showToast('Costo adicional agregado.');
+}
+function deleteCostoAdicional(projectId, costoId){
+  if(!confirm('¿Eliminar este costo adicional?')) return;
+  const p = state.projects.find(x=>x.id===projectId);
+  p.costosAdicionales = (p.costosAdicionales||[]).filter(x=>x.id!==costoId);
   persistProjects(); renderAll();
 }
 
@@ -3368,7 +3705,7 @@ function saveProject(projectId){
     p.name=name; p.tipo=tipo; p.lineaNegocio=lineaNegocio; p.pep=pep; p.client=client; p.status=status;
     p.fechaInicio=fechaInicio; p.fechaCierre=fechaCierre; p.startMonth=startMonth; p.endMonth=endMonth; p.montoVenta=montoVenta;
   }else{
-    state.projects.push({id:uid('proj'), name, tipo, lineaNegocio, pep, client, status, fechaInicio, fechaCierre, startMonth, endMonth, montoVenta, assignments:[], hitosFacturacion:[]});
+    state.projects.push({id:uid('proj'), name, tipo, lineaNegocio, pep, client, status, fechaInicio, fechaCierre, startMonth, endMonth, montoVenta, assignments:[], hitosFacturacion:[], costosAdicionales:[]});
   }
   persistProjects(); closeModal(); renderAll(); showToast(tipo==='admin' ? 'PEP de Administración guardado.' : 'Proyecto guardado.');
 }
@@ -4304,6 +4641,48 @@ function deleteCostoRol(idx){
   persistConfig(); renderAll();
 }
 
+function renderMetasConfigCard(){
+  const metas = state.config.metasFacturacion||[];
+  const rows = metas.map((m,i)=>
+    '<tr><td>'+(m.tipo==='unidad'?'🏢':'🏷️')+' '+m.nombre+'</td><td>'+m.periodo+'</td><td class="mono" style="text-align:right">'+fmtUF(m.metaUF)+'</td>'
+    + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteMetaFacturacion('+i+')">Eliminar</button></td></tr>'
+  ).join('');
+  return '<div class="card">'
+    + '<div class="card-header"><div><div class="card-title">🎯 Metas de Facturación</div><div class="card-sub">Meta anual por Unidad o Línea de Negocio, para ver avance, desviación y cuánto le corresponde a cada persona (referencial).</div></div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openMetaFacturacionModal()">+ Agregar meta</button></div>'
+    + (metas.length ? '<table><thead><tr><th>Unidad / Línea</th><th>Período</th><th class="num">Meta (UF)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin metas configuradas todavía.</p>')
+    + '</div>';
+}
+function openMetaFacturacionModal(){
+  const unidadOpts = (state.config.unidades||[]).map(u=>'<option value="'+u+'">'+u+'</option>').join('');
+  const lineaOpts = (state.config.lineasNegocio||[]).map(l=>'<option value="'+l.nombre+'">'+l.nombre+'</option>').join('');
+  document.getElementById('modalBody').innerHTML = '<h3>Nueva meta de facturación</h3>'
+    + '<div class="form-grid">'
+    + '<div class="field"><label>Ámbito</label><select id="f_meta_tipo" onchange="document.getElementById(\'f_meta_unidad_wrap\').style.display=this.value===\'unidad\'?\'\':\'none\'; document.getElementById(\'f_meta_linea_wrap\').style.display=this.value===\'linea\'?\'\':\'none\';"><option value="unidad">Unidad de Negocio</option><option value="linea">Línea de Negocio</option></select></div>'
+    + '<div class="field"><label>Período (año)</label><input id="f_meta_periodo" value="'+currentMonth().slice(0,4)+'" placeholder="2026"></div>'
+    + '<div class="field" id="f_meta_unidad_wrap"><label>Unidad</label><select id="f_meta_unidad"><option value="">Selecciona...</option>'+unidadOpts+'</select></div>'
+    + '<div class="field" id="f_meta_linea_wrap" style="display:none"><label>Línea</label><select id="f_meta_linea"><option value="">Selecciona...</option>'+lineaOpts+'</select></div>'
+    + '<div class="field"><label>Meta anual (UF)</label><input id="f_meta_valor" type="number" min="0" step="1" value="0"></div>'
+    + '</div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveMetaFacturacion()">Guardar</button></div>';
+  openModal();
+}
+function saveMetaFacturacion(){
+  const tipo = document.getElementById('f_meta_tipo').value;
+  const periodo = document.getElementById('f_meta_periodo').value.trim();
+  const nombre = tipo==='unidad' ? document.getElementById('f_meta_unidad').value : document.getElementById('f_meta_linea').value;
+  const metaUF = Number(document.getElementById('f_meta_valor').value)||0;
+  if(!nombre || !periodo){ showToast('Selecciona un ámbito y un período.'); return; }
+  if(!state.config.metasFacturacion) state.config.metasFacturacion=[];
+  state.config.metasFacturacion.push({tipo, nombre, periodo, metaUF});
+  persistConfig(); closeModal(); renderAll(); showToast('Meta guardada.');
+}
+function deleteMetaFacturacion(idx){
+  if(!confirm('¿Eliminar esta meta de facturación?')) return;
+  state.config.metasFacturacion.splice(idx,1);
+  persistConfig(); renderAll();
+}
+
 function renderConfig(){
   const cfg = state.config;
 
@@ -4330,9 +4709,11 @@ function renderConfig(){
     + '</div></div>';
 
   const financeCard = renderFinanceConfigCard();
+  const metasCard = renderMetasConfigCard();
 
   return backupCard
     + financeCard
+    + metasCard
     + '<div class="card"><div class="card-header"><div class="card-title">Unidades de Negocio</div><button class="btn btn-secondary btn-sm" onclick="openUnidadModal()">+ Agregar unidad</button></div>'
     + ((cfg.unidades||[]).length ? '<table><thead><tr><th>Nombre</th><th></th></tr></thead><tbody>'+unidadRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin unidades configuradas (ej: CircularHR, Expande).</p>')
     + '</div>'
