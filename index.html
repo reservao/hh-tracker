@@ -1380,6 +1380,59 @@ function renderDashboardCharts(){
     });
   }
 
+  // 1a. Curva S del Portafolio (avance acumulado, solo proyectos cliente)
+  const ctxCurvaS = document.getElementById('chartCurvaSPortafolio');
+  if(ctxCurvaS){
+    if(activeCharts.curvaSPortafolio){ activeCharts.curvaSPortafolio.destroy(); activeCharts.curvaSPortafolio=null; }
+
+    const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const projS = Array(12).fill(0);
+    const actS = Array(12).fill(0);
+
+    state.projects.forEach(p => {
+      if(p.tipo === 'admin') return;
+      (p.assignments||[]).forEach(a => {
+        Object.entries(a.projectedByMonth||{}).forEach(([monthKey, hours]) => {
+          if(isMonthInFilter(monthKey)){
+            const mNum = parseInt(monthKey.slice(5, 7), 10);
+            if(mNum >= 1 && mNum <= 12) projS[mNum - 1] += Number(hours||0);
+          }
+        });
+      });
+    });
+    state.realEntries.forEach(e => {
+      if(e.category === 'admin' || !e.month || !isMonthInFilter(e.month)) return;
+      const proj = state.projects.find(p => p.id === e.projectId);
+      if(proj && proj.tipo === 'admin') return;
+      const mNum = parseInt(e.month.slice(5, 7), 10);
+      if(mNum >= 1 && mNum <= 12) actS[mNum - 1] += Number(e.hours||0);
+    });
+
+    let cumProj = 0, cumAct = 0;
+    const cumProjData = [], cumActData = [];
+    for(let i=0;i<12;i++){ cumProj += projS[i]; cumAct += actS[i]; cumProjData.push(cumProj); cumActData.push(cumAct); }
+
+    activeCharts.curvaSPortafolio = new Chart(ctxCurvaS, {
+      type: 'line',
+      data: {
+        labels: monthsShort,
+        datasets: [
+          { label: 'Plan acumulado', data: cumProjData, borderColor: '#1E2A5E', backgroundColor: 'rgba(30,42,94,0.08)', fill: true, tension: 0.25 },
+          { label: 'Real acumulado', data: cumActData, borderColor: '#1E9E8B', backgroundColor: 'rgba(30,158,139,0.12)', fill: true, tension: 0.25 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
+        },
+        scales: { y: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
+      }
+    });
+  }
+
   // 1b. Gráfico Mensual Solo Proyectos Cliente
   const ctxMonthProj = document.getElementById('chartMensualProyectos');
   if(ctxMonthProj){
@@ -1654,6 +1707,12 @@ function renderDashboardVisualsHeader(){
     + '</div>'
     + '</div>'
     + '<div style="height:280px; position:relative"><canvas id="chartMensualProyVsReal"></canvas></div>'
+    + '</div>'
+
+    + '<div class="card" style="margin-bottom:20px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📈 Curva S del Portafolio — Avance Acumulado (Proyectos Cliente)</div>'
+    + '<div class="card-sub" style="font-size:12px">Horas planificadas vs. reales acumuladas mes a mes en toda la cartera de proyectos de clientes</div>'
+    + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaSPortafolio"></canvas></div>'
     + '</div>'
 
     + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:24px;">'
@@ -2675,8 +2734,16 @@ function renderPortfolioRentabilidad(){
       + '</tr>';
   }).join('');
 
+  let sanos=0, enRiesgo=0, criticos=0;
+  detalle.forEach(({m})=>{
+    const pct = m.proyectadoCierre.pct;
+    if(pct==null) return;
+    if(pct>=30) sanos++; else if(pct>=15) enRiesgo++; else criticos++;
+  });
+
   return '<div class="card" style="margin-bottom:20px">'
-    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:12px">💰 Rentabilidad del Portafolio</div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:4px">💰 Rentabilidad del Portafolio</div>'
+    + '<div class="card-sub" style="font-size:12.5px; margin-bottom:12px">🟢 '+sanos+' sano(s) · 🟡 '+enRiesgo+' en riesgo · 🔴 '+criticos+' crítico(s) — según margen proyectado al cierre</div>'
     + '<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:16px">'
     + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Venta contratada</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(venta)+'</div></div>'
     + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen devengado</div><div class="mono" style="font-size:19px; font-weight:700; color:'+pctBadgeColor(margenDevengadoPct)+'">'+(margenDevengadoPct==null?'—':margenDevengadoPct.toFixed(1)+'%')+'</div></div>'
@@ -2686,6 +2753,40 @@ function renderPortfolioRentabilidad(){
     + '</div>'
     + '<div class="section-label" style="margin-top:0">🚦 Ranking de riesgo (peor margen proyectado primero)</div>'
     + '<table><thead><tr><th>Proyecto</th><th class="num">Margen proyectado al cierre</th></tr></thead><tbody>'+rankingRows+'</tbody></table>'
+    + '</div>';
+}
+
+// Cronograma de hitos de facturación de todo el portafolio, ordenado por fecha,
+// con los vencidos destacados — la vista "Facturación y descalces" que la propuesta
+// describe como parte del panel de portafolio (sección 3.1 / Anexo C.4).
+function renderDashVencimientosFacturacion(){
+  const hoy = currentMonth()+'-'+String(new Date().getDate()).padStart(2,'0');
+  const hitos = [];
+  state.projects.forEach(p=>{
+    if(p.tipo==='admin') return;
+    (p.hitosFacturacion||[]).forEach(h=>{
+      if(h.estado==='facturado') return;
+      hitos.push({p, h, vencido: h.fecha && h.fecha < hoy});
+    });
+  });
+  if(hitos.length===0) return '';
+  hitos.sort((a,b)=> (a.h.fecha||'9999').localeCompare(b.h.fecha||'9999'));
+
+  const rows = hitos.slice(0,8).map(({p,h,vencido})=>{
+    const monto = p.montoVenta ? fmtUF(p.montoVenta*Number(h.pctVenta||0)/100) : '—';
+    return '<tr class="expand-toggle" onclick="openProjectDetail(\''+p.id+'\')">'
+      + '<td><b>'+p.name+'</b></td>'
+      + '<td>'+h.nombre+'</td>'
+      + '<td class="mono" style="text-align:right">'+monto+'</td>'
+      + '<td>'+(h.fecha||'—')+'</td>'
+      + '<td><span class="badge '+(vencido?'pausa':'iniciar')+'">'+(vencido?'Vencido':'Pendiente')+'</span></td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card" style="margin-bottom:20px">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:4px">📅 Próximos Vencimientos de Facturación</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Hitos pendientes de todo el portafolio, ordenados por fecha' + (hitos.length>8 ? ' (mostrando los 8 más próximos de '+hitos.length+')' : '') + '</div>'
+    + '<table><thead><tr><th>Proyecto</th><th>Hito</th><th class="num">Monto</th><th>Fecha</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody></table>'
     + '</div>';
 }
 
@@ -2722,6 +2823,7 @@ function renderDashGlobal(){
   let html = renderDashInsightsBanner();
 
   html += renderPortfolioRentabilidad();
+  html += renderDashVencimientosFacturacion();
 
   html += '<div class="section-label">Consolidado General del Portafolio (Horas Hombre)</div>';
 
