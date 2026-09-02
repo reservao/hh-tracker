@@ -14,6 +14,17 @@
 
 ## 🔄 2. Historial de Sesiones y Cambios
 
+### [2026-09-02] - Prototipo local sin Firebase + Capa financiera (tarifas, costos, márgenes, facturación)
+- **Contexto**: se recibió una propuesta externa (MorgansMedia) para construir una "Plataforma de Gestión de Horas Hombre, Rentabilidad y Facturación". Se decidió primero prototipar en local la capa que falta, extendiendo esta misma app, antes de evaluar una migración a Supabase/PostgreSQL en producción.
+- **Persistencia 100% local**: se eliminó la dependencia de Firebase/Firestore (incluía credenciales expuestas en el HTML y acceso público sin autenticación). Los datos ahora se guardan en `localStorage` del navegador mediante `lsSet`/`lsGet`, detrás de la misma interfaz `persistProjects/persistPeople/persistEntries/persistConfig` que ya usaba el resto del código, para que la futura migración a Supabase solo requiera reemplazar esa capa.
+- **Tarifas y costos por rol (UF, con vigencia)**: nueva sección en Configuración (`renderFinanceConfigCard`) para definir el valor UF de referencia, tarifas de venta por rol y costo empresa por hora por rol, cada una con fecha de vigencia (un cambio de tarifa no reescribe meses ya calculados).
+- **Tarifa efectiva y tres lecturas de margen**: por proyecto se calcula la tarifa efectiva (venta ÷ horas prospectadas), margen devengado, margen proyectado al cierre y margen comercial de cierre (`margenesProject`), siguiendo la misma lógica descrita en la propuesta externa.
+- **Facturación por hitos y descalce**: cada proyecto puede tener hitos de facturación (% de venta, fecha, estado) y se calcula el descalce entre % de esfuerzo consumido y % facturado.
+- **Simulación de roles y protección de campo**: selector "Vista como…" en la barra superior (Dirección FCh / Gerente de Unidad / Director de Línea / Jefe de Proyecto / Administrador) que oculta el costo empresa (dato sensible bajo Ley 21.719) para los roles sin esa atribución. Es una simulación en el navegador para validar el concepto con la empresa — la protección real a nivel de servidor llegará con la migración a Supabase.
+- **Validado con pruebas automatizadas (Playwright)**: flujo completo de configuración de tarifas/costos, creación de proyecto con monto de venta, proyección de horas por rol, cálculo de márgenes, hitos de facturación y persistencia tras recargar la página, sin errores de consola.
+
+
+
 ### [2026-08-09] - Transformación Visual 2.0 (Rediseño de Píldoras Métricas & Sistema Circular HR)
 - **Transformación de Celdas Numéricas (Píldoras de Métricas Visuales)**:
   - Se reemplazaron los números de porcentaje planos por **Píldoras de Métricas Estilizadas (`.pct-pill`)**:
