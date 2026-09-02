@@ -64,5 +64,6 @@
 ---
 
 ## 📋 4. Próximos Pasos Pendientes
-1. Revisión visual por parte del usuario.
+1. Revisión visual por parte del usuario del prototipo con capa financiera (tarifas, costos, márgenes, facturación).
+2. Ver `ROADMAP.md` para decisiones de arquitectura pendientes (migración a Supabase) y backlog de funcionalidades futuras (gestión comercial/prospectos, asistente de IA).
 
