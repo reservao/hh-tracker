@@ -254,12 +254,12 @@ let state = {
   hhSubTab: 'proyectos',
   dashMode: 'global', // 'global' | 'hierarchy' | 'unidades' | 'lineas' | 'proyectos' | 'personas'
   loaded: false,
-  expandedProject: null,
   dashNav: {unidad:null, linea:null, projectId:null, personId:null},
   entryFilterMonth: 'all',
   capacityMonth: null,
   userName: '',
-  viewAsRole: 'Administrador'
+  viewAsRole: 'Administrador',
+  detailView: null // {type:'project'|'person', id}
 };
 
 const ORG_ROLES = ['Dirección FCh', 'Gerente de Unidad', 'Director de Línea', 'Jefe de Proyecto', 'Administrador'];
@@ -907,12 +907,14 @@ function gauge(projected, actual){
 // ---------- Tabs ----------
 function switchMainView(view){
   state.mainView = view;
+  state.detailView = null;
   if(view==='hh' && (!state.hhSubTab || state.hhSubTab==='matriz')) state.hhSubTab = 'proyectos';
   renderTopButtons();
   renderContent();
 }
 function switchHHSubTab(tab){
   state.hhSubTab = tab;
+  state.detailView = null;
   renderContent();
 }
 function initTheme(){
@@ -989,6 +991,15 @@ function renderContent(){
   const el = document.getElementById('content');
   if(!state.loaded){ el.innerHTML = '<div class="loading">Cargando datos…</div>'; return; }
   renderSubnav();
+  if(state.detailView && state.detailView.type==='project'){
+    el.innerHTML = renderProjectDetailPage(state.detailView.id);
+    renderProjectDetailCharts(state.detailView.id);
+    return;
+  }
+  if(state.detailView && state.detailView.type==='person'){
+    el.innerHTML = renderPersonDetailPage(state.detailView.id);
+    return;
+  }
   if(state.mainView==='dashboard'){
     el.innerHTML = renderDashboard();
     renderDashboardCharts();
@@ -999,6 +1010,11 @@ function renderContent(){
   }
   else if(state.mainView==='config') el.innerHTML = renderConfig();
 }
+
+// ---------- Vista de detalle (proyecto / persona) ----------
+function openProjectDetail(id){ state.detailView = {type:'project', id}; renderContent(); }
+function openPersonDetail(id){ state.detailView = {type:'person', id}; renderContent(); }
+function closeDetailView(){ state.detailView = null; renderAll(); }
 
 // ---------- Dashboard ----------
 function dashGoto(partial){
@@ -2178,7 +2194,7 @@ function renderDashProjectComplianceTable(){
     if(totalRatio > 1.1) totalColor = 'var(--red)';
     else if(totalRatio < 0.7 && totalProj > 0) totalColor = 'var(--amber)';
 
-    return '<tr>'
+    return '<tr class="expand-toggle" onclick="openProjectDetail(\'' + p.id + '\')">'
       + '<td style="font-size:12.5px; padding:10px 12px; min-width:280px; vertical-align:middle;">'
       + '<div style="line-height:1.3;"><strong style="color:var(--text); font-size:13px; font-weight:700;">' + p.name + '</strong></div>'
       + '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px;">'
@@ -2627,12 +2643,85 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// Resumen de rentabilidad agregada del portafolio: la misma capa financiera que se ve
+// por proyecto (sección 5.1 de la propuesta: tres lecturas de margen), pero sumada
+// a nivel de cartera completa, con ranking de riesgo clickeable a cada proyecto.
+function renderPortfolioRentabilidad(){
+  const projectsConVenta = state.projects.filter(p=>p.tipo!=='admin' && Number(p.montoVenta||0)>0);
+  if(projectsConVenta.length===0) return '';
+
+  let venta=0, costoDevengado=0, ingresoDevengado=0, costoPorTerminar=0, facturadoUF=0;
+  const detalle = projectsConVenta.map(p=>{
+    const m = margenesProject(p);
+    venta += m.venta; costoDevengado += m.costoDevengado; ingresoDevengado += m.ingresoDevengado; costoPorTerminar += m.costoPorTerminar;
+    (p.hitosFacturacion||[]).forEach(h=>{ if(h.estado==='facturado') facturadoUF += Number(p.montoVenta||0)*Number(h.pctVenta||0)/100; });
+    return {p, m};
+  });
+  const margenDevengadoPct = ingresoDevengado > 0 ? ((ingresoDevengado-costoDevengado)/ingresoDevengado*100) : null;
+  const margenProyectadoPct = venta > 0 ? ((venta-(costoDevengado+costoPorTerminar))/venta*100) : null;
+  const pendienteUF = venta - facturadoUF;
+  const verCosto = canSeeCostoEmpresa();
+
+  const ranking = detalle.slice().sort((a,b)=>{
+    const pa = a.m.proyectadoCierre.pct==null ? 999 : a.m.proyectadoCierre.pct;
+    const pb = b.m.proyectadoCierre.pct==null ? 999 : b.m.proyectadoCierre.pct;
+    return pa-pb;
+  }).slice(0,5);
+  const rankingRows = ranking.map(({p,m})=>{
+    const pct = m.proyectadoCierre.pct;
+    return '<tr class="expand-toggle" onclick="openProjectDetail(\''+p.id+'\')">'
+      + '<td><b>'+p.name+'</b></td>'
+      + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pct)+'; font-weight:700">'+(pct==null?'—':pct.toFixed(0)+'%')+'</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card" style="margin-bottom:20px">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:12px">💰 Rentabilidad del Portafolio</div>'
+    + '<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:16px">'
+    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Venta contratada</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(venta)+'</div></div>'
+    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen devengado</div><div class="mono" style="font-size:19px; font-weight:700; color:'+pctBadgeColor(margenDevengadoPct)+'">'+(margenDevengadoPct==null?'—':margenDevengadoPct.toFixed(1)+'%')+'</div></div>'
+    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen proyectado al cierre</div><div class="mono" style="font-size:19px; font-weight:700; color:'+pctBadgeColor(margenProyectadoPct)+'">'+(margenProyectadoPct==null?'—':margenProyectadoPct.toFixed(1)+'%')+'</div></div>'
+    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Facturado / Pendiente</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(facturadoUF)+' / '+fmtUF(pendienteUF)+'</div></div>'
+    + (verCosto ? '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Costo devengado</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(costoDevengado)+'</div></div>' : '')
+    + '</div>'
+    + '<div class="section-label" style="margin-top:0">🚦 Ranking de riesgo (peor margen proyectado primero)</div>'
+    + '<table><thead><tr><th>Proyecto</th><th class="num">Margen proyectado al cierre</th></tr></thead><tbody>'+rankingRows+'</tbody></table>'
+    + '</div>';
+}
+
+function renderDashPersonComplianceTable(){
+  if(state.people.length===0) return '';
+  const rows = state.people.map(person=>{
+    const cap = personCapacity(person);
+    const m = currentMonth();
+    const pm = personProjectHoursInMonth(person.id, m);
+    const am = personAdminHoursInMonth(person.id, m);
+    const total = pm+am;
+    const pct = cap>0 ? (total/cap*100) : 0;
+    return '<tr class="expand-toggle" onclick="openPersonDetail(\''+person.id+'\')">'
+      + '<td><b>'+person.name+'</b></td>'
+      + '<td>'+person.role+'</td>'
+      + '<td>'+(person.lineaNegocio||'<span class="muted">Sin línea</span>')+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(pm)+' h</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(am)+' h</td>'
+      + '<td style="min-width:160px">'+gauge(cap, total)+'</td>'
+      + '</tr>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:20px">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:4px">👥 Cumplimiento por Persona — '+fmtMonth(currentMonth())+'</div>'
+    + '<div class="card-sub" style="font-size:12px; margin-bottom:10px">Haz clic en una persona para ver su detalle (proyectos, historial, capacidad)</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Persona</th><th>Rol</th><th>Línea</th><th class="num">Proyecto (mes)</th><th class="num">Admin (mes)</th><th>Consumo vs. capacidad</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    + '</div>';
+}
+
 function renderDashGlobal(){
   const totals = getFilteredTotals();
   const totalProj = totals.projClient + totals.projAdmin;
   const totalAct = totals.actClient + totals.actAdmin;
 
   let html = renderDashInsightsBanner();
+
+  html += renderPortfolioRentabilidad();
 
   html += '<div class="section-label">Consolidado General del Portafolio (Horas Hombre)</div>';
 
@@ -2661,6 +2750,7 @@ function renderDashGlobal(){
   html += renderDashUnidadesComplianceTable();
   html += renderDashLineasComplianceTable();
   html += renderDashProjectComplianceTable();
+  html += renderDashPersonComplianceTable();
 
   return html;
 }
@@ -2851,7 +2941,6 @@ function renderProyectos(){
     const typeBadge = isAdmin
       ? '<span class="chip" style="background:#FBF1DF; color:#DB9A2E; font-weight:700; margin-left:6px">⚙️ Administración</span>'
       : '<span class="chip" style="background:#E6F5F2; color:#1E9E8B; font-weight:700; margin-left:6px">📂 Proyecto</span>';
-    const expanded = state.expandedProject==='mgmt_'+p.id;
     const periodo = p.startMonth ? fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : 'Sin período definido';
     const lineaText = p.lineaNegocio ? ' · LN: <b>'+p.lineaNegocio+'</b>' : ' · <span class="muted">Sin LN</span>';
 
@@ -2860,20 +2949,13 @@ function renderProyectos(){
       + '<div><div class="card-title">'+p.name+typeBadge+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
       + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+lineaText+' · '+periodo+'</div></div>'
       + '<div style="display:flex; gap:6px; flex-wrap:wrap">'
-      + '<button class="btn btn-secondary btn-sm" onclick="toggleMgmt(\''+p.id+'\')">'+(expanded?'Cerrar':'Gestionar roles / proyecciones')+'</button>'
+      + '<button class="btn btn-primary btn-sm" onclick="openProjectDetail(\''+p.id+'\')">Ver detalle</button>'
       + '<button class="btn btn-secondary btn-sm" onclick="openProjectModal(\''+p.id+'\')">Editar</button>'
       + '<button class="btn btn-ghost btn-sm" onclick="deleteProject(\''+p.id+'\')">Eliminar</button>'
       + '</div></div>'
-      + (expanded ? renderPeopleManager(p) + (isAdmin ? '' : renderFinanzasProyecto(p)) : '')
       + '</div>';
   }).join('');
   return html;
-}
-
-function toggleMgmt(id){
-  const key = 'mgmt_'+id;
-  state.expandedProject = state.expandedProject===key ? null : key;
-  renderContent();
 }
 
 function renderPeopleManager(p){
@@ -3000,6 +3082,135 @@ function deleteHitoFacturacion(projectId, hitoId){
   const p = state.projects.find(x=>x.id===projectId);
   p.hitosFacturacion = (p.hitosFacturacion||[]).filter(x=>x.id!==hitoId);
   persistProjects(); renderAll();
+}
+
+// ---------- Página de detalle de proyecto ----------
+function renderProjectDetailPage(id){
+  const p = state.projects.find(x=>x.id===id);
+  if(!p){
+    return '<button class="btn btn-secondary btn-sm" onclick="closeDetailView()">← Volver</button>'
+      + '<div class="card" style="margin-top:12px"><div class="empty">Proyecto no encontrado (puede haber sido eliminado).</div></div>';
+  }
+  const t = projectTotals(p);
+  const sm = statusMeta(p.status);
+  const isAdmin = p.tipo === 'admin';
+  const periodo = p.startMonth ? fmtMonth(p.startMonth)+' – '+fmtMonth(p.endMonth) : 'Sin período definido';
+  const typeBadge = isAdmin
+    ? '<span class="chip" style="background:#FBF1DF; color:#DB9A2E; font-weight:700; margin-left:6px">⚙️ Administración</span>'
+    : '<span class="chip" style="background:#E6F5F2; color:#1E9E8B; font-weight:700; margin-left:6px">📂 Proyecto</span>';
+
+  let html = '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px">'
+    + '<button class="btn btn-secondary btn-sm" onclick="closeDetailView()">← Volver</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openProjectModal(\''+p.id+'\')">✏️ Editar</button>'
+    + '</div>';
+
+  html += '<div class="card">'
+    + '<div class="card-title" style="font-size:19px">'+p.name+typeBadge+' <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></div>'
+    + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+(p.lineaNegocio?' · LN: '+p.lineaNegocio:'')+' · '+periodo+'</div>'
+    + '<div style="max-width:520px; margin-top:14px">'+gauge(t.projectedHours, t.actualHours)+'</div>'
+    + renderPeopleManager(p)
+    + (isAdmin ? '' : renderFinanzasProyecto(p))
+    + '</div>';
+
+  if(!isAdmin && p.startMonth && p.endMonth){
+    html += '<div class="card"><div class="section-label" style="margin-top:0">📈 Curva S — Avance acumulado (plan vs. real)</div>'
+      + '<div style="height:280px; position:relative"><canvas id="curvaSChart"></canvas></div></div>';
+  }
+
+  return html;
+}
+function renderProjectDetailCharts(id){
+  const p = state.projects.find(x=>x.id===id);
+  if(activeCharts.curvaS){ activeCharts.curvaS.destroy(); activeCharts.curvaS=null; }
+  if(!p || p.tipo==='admin' || !p.startMonth || !p.endMonth) return;
+  const ctx = document.getElementById('curvaSChart');
+  if(!ctx) return;
+  const months = monthRange(p.startMonth, p.endMonth);
+  let cumProj=0, cumAct=0;
+  const projData=[], actData=[];
+  months.forEach(m=>{
+    let projM=0;
+    (p.assignments||[]).forEach(a=>{ projM += Number((a.projectedByMonth||{})[m]||0); });
+    let actM=0;
+    state.realEntries.forEach(e=>{ if(e.projectId===p.id && e.month===m) actM += Number(e.hours||0); });
+    cumProj += projM; cumAct += actM;
+    projData.push(cumProj); actData.push(cumAct);
+  });
+  activeCharts.curvaS = new Chart(ctx, {
+    type:'line',
+    data:{ labels: months.map(fmtMonth), datasets:[
+      {label:'Plan acumulado', data:projData, borderColor:'#1E2A5E', backgroundColor:'rgba(30,42,94,0.08)', fill:true, tension:0.25},
+      {label:'Real acumulado', data:actData, borderColor:'#1E9E8B', backgroundColor:'rgba(30,158,139,0.12)', fill:true, tension:0.25}
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'top'}, tooltip:{callbacks:{label:function(c){ return c.dataset.label+': '+fmtH(c.raw)+' h'; }}} },
+      scales:{ y:{ beginAtZero:true, ticks:{ callback:function(v){ return v+' h'; } } } }
+    }
+  });
+}
+
+// ---------- Página de detalle de persona ----------
+function personProjectsWithHours(personId){
+  const map = {};
+  state.realEntries.forEach(e=>{
+    if(e.personId!==personId || e.category!=='project' || !e.projectId) return;
+    map[e.projectId] = (map[e.projectId]||0) + Number(e.hours||0);
+  });
+  return Object.keys(map).map(pid=>({project: state.projects.find(p=>p.id===pid), hours: map[pid]})).filter(x=>x.project);
+}
+function renderPersonDetailPage(id){
+  const person = getPerson(id);
+  if(!person){
+    return '<button class="btn btn-secondary btn-sm" onclick="closeDetailView()">← Volver</button>'
+      + '<div class="card" style="margin-top:12px"><div class="empty">Persona no encontrada (puede haber sido eliminada).</div></div>';
+  }
+  const cap = personCapacity(person);
+  const targetProj = personTargetProjectPct(person);
+  const targetAdmin = personTargetAdminPct(person);
+  const months = lastMonthsDesc(6);
+  const projectsWithHours = personProjectsWithHours(id).sort((a,b)=>b.hours-a.hours);
+  const totalProjectHours = projectsWithHours.reduce((s,x)=>s+x.hours,0);
+  const totalAdminHours = state.realEntries.filter(e=>e.personId===id && e.category==='admin').reduce((s,e)=>s+Number(e.hours||0),0);
+
+  let html = '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px">'
+    + '<button class="btn btn-secondary btn-sm" onclick="closeDetailView()">← Volver</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openPersonModalGlobal(\''+person.id+'\')">✏️ Editar</button>'
+    + '</div>';
+
+  html += '<div class="card">'
+    + '<div class="card-title" style="font-size:19px">'+person.name+'</div>'
+    + '<div class="card-sub">'+person.role+' · '+(person.lineaNegocio||'Sin línea')+' · Capacidad '+fmtH(cap)+' h/mes</div>'
+    + '<div style="display:flex; gap:24px; flex-wrap:wrap; margin-top:14px">'
+    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">HH en proyectos (histórico)</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtH(totalProjectHours)+' h</div></div>'
+    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">HH administración (histórico)</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtH(totalAdminHours)+' h</div></div>'
+    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Meta Proyecto / Admin</div><div class="mono" style="font-size:19px; font-weight:700">'+targetProj+'% / '+targetAdmin+'%</div></div>'
+    + '</div></div>';
+
+  const projRows = projectsWithHours.map(x=>{
+    const sm = statusMeta(x.project.status);
+    return '<tr class="expand-toggle" onclick="openProjectDetail(\''+x.project.id+'\')">'
+      + '<td><b>'+x.project.name+'</b> <span class="badge '+sm.cls+'" style="margin-left:6px">'+sm.label+'</span></td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(x.hours)+' h</td>'
+      + '</tr>';
+  }).join('');
+  html += '<div class="card"><div class="section-label" style="margin-top:0">Proyectos donde ha registrado horas</div>'
+    + (projRows ? '<table><thead><tr><th>Proyecto</th><th class="num">HH reales</th></tr></thead><tbody>'+projRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin horas registradas todavía.</p>')
+    + '</div>';
+
+  const monthRows = months.map(m=>{
+    const pm = personProjectHoursInMonth(id, m);
+    const am = personAdminHoursInMonth(id, m);
+    const total = pm+am;
+    const pct = cap>0 ? (total/cap*100) : 0;
+    const color = ratioColor(cap>0 ? total/cap : 0);
+    return '<tr><td>'+fmtMonth(m)+'</td><td class="mono" style="text-align:right">'+fmtH(pm)+'</td><td class="mono" style="text-align:right">'+fmtH(am)+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+color+'">'+pct.toFixed(0)+'%</td></tr>';
+  }).join('');
+  html += '<div class="card"><div class="section-label" style="margin-top:0">Últimos 6 meses</div>'
+    + '<table><thead><tr><th>Mes</th><th class="num">Proyectos</th><th class="num">Administración</th><th class="num">% Capacidad</th></tr></thead><tbody>'+monthRows+'</tbody></table>'
+    + '</div>';
+
+  return html;
 }
 
 // ---------- Project modal ----------
