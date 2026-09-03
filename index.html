@@ -1046,14 +1046,19 @@ function pctBadgeColor(pct){
 function infoTip(text){
   return '<span class="info-tip" title="'+String(text).replace(/"/g,'&quot;')+'">?</span>';
 }
-function metricLabel(text, tip){
-  return '<div class="muted" style="font-size:11px; text-transform:uppercase; display:flex; align-items:center; gap:5px">'+text+(tip?' '+infoTip(tip):'')+'</div>';
+function metricLabel(text, tip, center){
+  return '<div class="muted" style="font-size:11px; text-transform:uppercase; display:flex; align-items:center; justify-content:'+(center?'center':'flex-start')+'; gap:5px">'+text+(tip?' '+infoTip(tip):'')+'</div>';
 }
+// Título siempre arriba, valor (y su sub-nota, si tiene) centrados en el espacio
+// restante de la tarjeta — así una tarjeta con nota abajo y una sin nota se ven
+// igual de balanceadas en vez de que el valor quede pegado arriba.
 function kpiBlock(label, tip, valueHtml, sub){
-  return '<div style="background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px 18px; flex:1; min-width:210px; min-height:108px; display:flex; flex-direction:column; justify-content:center">'
-    + metricLabel(label, tip)
-    + '<div class="mono" style="font-size:24px; font-weight:700; margin-top:8px; line-height:1.2">'+valueHtml+'</div>'
+  return '<div style="background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px 18px; flex:1; min-width:210px; min-height:108px; display:flex; flex-direction:column; text-align:center">'
+    + metricLabel(label, tip, true)
+    + '<div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center">'
+    + '<div class="mono" style="font-size:24px; font-weight:700; line-height:1.2">'+valueHtml+'</div>'
     + (sub ? '<div class="muted" style="font-size:11.5px; margin-top:6px">'+sub+'</div>' : '')
+    + '</div>'
     + '</div>';
 }
 // Card de margen (usada tanto a nivel de un proyecto como a nivel global/portafolio):
