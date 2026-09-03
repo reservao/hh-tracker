@@ -145,6 +145,7 @@ td.mono, th.num{ text-align:right; }
 .hidden{ display:none !important; }
 .expand-toggle{ cursor:pointer; user-select:none; }
 .chip{ background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:2px 8px; font-size:11.5px; color:var(--muted); }
+.info-tip{ display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--border); color:var(--muted); font-size:10px; font-weight:700; font-style:normal; cursor:help; flex-shrink:0; }
 .filter-bar{ display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
 .breadcrumb{ margin-bottom:16px; font-size:13px; display:flex; align-items:center; flex-wrap:wrap; }
 .breadcrumb a{ cursor:pointer; color:var(--muted); font-weight:600; }
@@ -295,7 +296,7 @@ function parseMonthLabel(label){ // 'marzo 2026' / 'MarzO   2026' / 'Marzo, 2026
 }
 
 // ---------- Storage (Firebase Firestore) ----------
-function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, tarifasPorRol:[], costoEmpresaPorRol:[], metasFacturacion:[]}; }
+function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, valorUFFecha:null, tarifasPorRol:[], costoEmpresaPorRol:[], metasFacturacion:[]}; }
 function migrateConfigShape(){
   if(!state.config.unidades) state.config.unidades=[];
   if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
@@ -392,6 +393,7 @@ function initLocalStorageSync(){
   if(migrateConfigShape()) persistConfig();
   renderTopButtons();
   renderAll();
+  actualizarValorUFAutomatico();
 }
 
 // ---------- Datos de ejemplo ----------
@@ -792,6 +794,32 @@ function fmtUF(n){ return new Intl.NumberFormat('es-CL',{maximumFractionDigits:1
 function fmtCLP(n){ return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(n||0); }
 function ufToCLP(uf){ return Number(uf||0) * Number(state.config.valorUF||0); }
 
+// ---------- Valor UF: se actualiza solo una vez al día contra un servicio público ----------
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+// Actualiza el valor UF automáticamente desde mindicador.cl (API pública, sin costo,
+// mantenida por la comunidad y usada ampliamente en Chile para este propósito exacto).
+// Se llama una sola vez al abrir la app y no vuelve a pedir el dato si ya se actualizó
+// hoy. Si falla (sin internet, servicio caído), se deja el último valor guardado y no
+// se interrumpe el uso de la app — la UF se puede seguir editando a mano en Configuración.
+async function actualizarValorUFAutomatico(force){
+  if(!force && state.config.valorUFFecha === todayISO()) return;
+  try{
+    const resp = await fetch('https://mindicador.cl/api/uf');
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const data = await resp.json();
+    const valor = data && data.serie && data.serie[0] && Number(data.serie[0].valor);
+    if(valor > 0){
+      state.config.valorUF = valor;
+      state.config.valorUFFecha = todayISO();
+      persistConfig();
+      renderAll();
+      if(force) showToast('Valor UF actualizado: '+fmtCLP(valor));
+    }
+  } catch(err){
+    if(force) showToast('No se pudo obtener el valor UF automáticamente (revisa tu conexión). Puedes ingresarlo manualmente abajo.');
+  }
+}
+
 // Tarifa/costo vigente de un rol a una fecha dada: toma, entre las entradas con
 // vigenciaDesde <= mes, la de vigencia más reciente. Un cambio de tarifa nunca
 // reescribe meses ya calculados con la tarifa anterior.
@@ -907,6 +935,35 @@ function pctBadgeColor(pct){
   return 'var(--teal)';
 }
 
+// Explicación en lenguaje simple, visible al pasar el mouse, para que cualquier
+// persona (no solo finanzas) entienda qué mide un número sin tener que preguntar.
+function infoTip(text){
+  return '<span class="info-tip" title="'+String(text).replace(/"/g,'&quot;')+'">?</span>';
+}
+function metricLabel(text, tip){
+  return '<div class="muted" style="font-size:11px; text-transform:uppercase; display:flex; align-items:center; gap:5px">'+text+(tip?' '+infoTip(tip):'')+'</div>';
+}
+function kpiBlock(label, tip, valueHtml, sub){
+  return '<div>'
+    + metricLabel(label, tip)
+    + '<div class="mono" style="font-size:19px; font-weight:700">'+valueHtml+'</div>'
+    + (sub ? '<div class="muted" style="font-size:11px; margin-top:2px">'+sub+'</div>' : '')
+    + '</div>';
+}
+// Card de margen (usada tanto a nivel de un proyecto como a nivel global/portafolio):
+// muestra el % con color semáforo, el monto en UF y una explicación en lenguaje simple
+// de qué pregunta responde esa lectura de margen.
+function margenCard(label, sub, data){
+  const pctLabel = data.pct == null ? '—' : data.pct.toFixed(1) + '%';
+  const montoLabel = data.monto == null ? '—' : fmtUF(data.monto);
+  return '<div style="background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px; flex:1; min-width:180px">'
+    + '<div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted)">'+label+'</div>'
+    + '<div style="font-size:20px; font-weight:700; font-family:JetBrains Mono, monospace; color:'+pctBadgeColor(data.pct)+'; margin-top:4px">'+pctLabel+'</div>'
+    + '<div class="mono" style="font-size:12.5px; color:var(--muted); margin-top:2px">'+montoLabel+'</div>'
+    + '<div class="muted" style="font-size:11px; margin-top:4px">'+sub+'</div>'
+    + '</div>';
+}
+
 // ---------- Metas de facturación por Unidad / Línea de Negocio ----------
 // El "monto por persona" es un promedio referencial (meta ÷ dotación), no una cuota
 // justa por persona: roles distintos facturan a tarifas distintas. Se etiqueta así
@@ -957,8 +1014,10 @@ function projectDescalce(project){
   return { pctEsfuerzo, pctFacturado, brecha: pctEsfuerzo - pctFacturado };
 }
 
-function gauge(projected, actual){
+function gauge(projected, actual, fmtFn, suffix){
   projected = Number(projected)||0; actual = Number(actual)||0;
+  fmtFn = fmtFn || (v => fmtH(v)+' h');
+  suffix = suffix || 'proy.';
   const scale = Math.max(projected, actual, 1) * 1.15;
   const markerPct = (projected/scale*100).toFixed(2);
   const fillPct = (actual/scale*100).toFixed(2);
@@ -970,7 +1029,7 @@ function gauge(projected, actual){
     + '<div class="gauge-fill" style="width:'+fillPct+'%;background:'+color+'"></div>'
     + '<div class="gauge-marker" style="left:'+markerPct+'%"></div>'
     + '</div>'
-    + '<div class="gauge-label"><span class="mono" style="font-weight:600">'+fmtH(actual)+' h</span><span class="muted">/ '+fmtH(projected)+' h proy.</span><span class="mono" style="color:'+color+';font-weight:700;margin-left:auto">'+pctLabel+'</span></div>'
+    + '<div class="gauge-label"><span class="mono" style="font-weight:600">'+fmtFn(actual)+'</span><span class="muted">/ '+fmtFn(projected)+' '+suffix+'</span><span class="mono" style="color:'+color+';font-weight:700;margin-left:auto">'+pctLabel+'</span></div>'
     + '</div>';
 }
 
@@ -1851,6 +1910,24 @@ function createLineaChart(canvasId, chartKey, filterType){
   });
 }
 
+// Las dos curvas de avance del portafolio (facturación primero, luego horas) se
+// muestran al inicio del dashboard, justo bajo el análisis financiero general —
+// son las dos preguntas más importantes ("¿cómo vamos con la plata?" y "¿cómo
+// vamos con el esfuerzo?") antes de entrar al resto del detalle.
+function renderCurvasPortafolioTop(){
+  return '<div class="card" style="margin-bottom:20px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">💵 Curva de Facturación del Portafolio — Acumulado</div>'
+    + '<div class="card-sub" style="font-size:12px">Monto planificado (según fecha de hitos) vs. monto realmente facturado, acumulado mes a mes</div>'
+    + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaFacturacionPortafolio"></canvas></div>'
+    + '</div>'
+
+    + '<div class="card" style="margin-bottom:20px;">'
+    + '<div class="card-title" style="font-size:15px; font-weight:700">📈 Curva S del Portafolio — Avance Acumulado de Horas (Proyectos Cliente)</div>'
+    + '<div class="card-sub" style="font-size:12px">Horas planificadas vs. reales acumuladas mes a mes en toda la cartera de proyectos de clientes</div>'
+    + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaSPortafolio"></canvas></div>'
+    + '</div>';
+}
+
 function renderDashboardVisualsHeader(){
   return '<div class="card" style="margin-bottom:20px;">'
     + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
@@ -1860,18 +1937,6 @@ function renderDashboardVisualsHeader(){
     + '</div>'
     + '</div>'
     + '<div style="height:280px; position:relative"><canvas id="chartMensualProyVsReal"></canvas></div>'
-    + '</div>'
-
-    + '<div class="card" style="margin-bottom:20px;">'
-    + '<div class="card-title" style="font-size:15px; font-weight:700">📈 Curva S del Portafolio — Avance Acumulado (Proyectos Cliente)</div>'
-    + '<div class="card-sub" style="font-size:12px">Horas planificadas vs. reales acumuladas mes a mes en toda la cartera de proyectos de clientes</div>'
-    + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaSPortafolio"></canvas></div>'
-    + '</div>'
-
-    + '<div class="card" style="margin-bottom:20px;">'
-    + '<div class="card-title" style="font-size:15px; font-weight:700">💵 Curva de Facturación del Portafolio — Acumulado</div>'
-    + '<div class="card-sub" style="font-size:12px">Monto planificado (según fecha de hitos) vs. monto realmente facturado, acumulado mes a mes</div>'
-    + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaFacturacionPortafolio"></canvas></div>'
     + '</div>'
 
     + '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:24px;">'
@@ -2876,20 +2941,25 @@ document.addEventListener('keydown', e => {
 // Resumen de rentabilidad agregada del portafolio: la misma capa financiera que se ve
 // por proyecto (sección 5.1 de la propuesta: tres lecturas de margen), pero sumada
 // a nivel de cartera completa, con ranking de riesgo clickeable a cada proyecto.
-function renderPortfolioRentabilidad(){
+function renderAnalisisFinancieroGeneral(){
   const projectsConVenta = state.projects.filter(p=>p.tipo!=='admin' && Number(p.montoVenta||0)>0);
   if(projectsConVenta.length===0) return '';
+  const year = String(new Date().getFullYear());
 
   let venta=0, costoDevengado=0, ingresoDevengado=0, costoPorTerminar=0, facturadoUF=0;
+  let ventaCerrados=0, costoDevengadoCerrados=0;
   const detalle = projectsConVenta.map(p=>{
     const m = margenesProject(p);
     venta += m.venta; costoDevengado += m.costoDevengado; ingresoDevengado += m.ingresoDevengado; costoPorTerminar += m.costoPorTerminar;
     (p.hitosFacturacion||[]).forEach(h=>{ if(h.estado==='facturado') facturadoUF += Number(p.montoVenta||0)*Number(h.pctVenta||0)/100; });
+    if(p.status==='cerrado'){ ventaCerrados += m.venta; costoDevengadoCerrados += m.costoDevengado; }
     return {p, m};
   });
   const margenDevengadoPct = ingresoDevengado > 0 ? ((ingresoDevengado-costoDevengado)/ingresoDevengado*100) : null;
   const margenProyectadoPct = venta > 0 ? ((venta-(costoDevengado+costoPorTerminar))/venta*100) : null;
+  const margenComercialPct = ventaCerrados > 0 ? ((ventaCerrados-costoDevengadoCerrados)/ventaCerrados*100) : null;
   const pendienteUF = venta - facturadoUF;
+  const costoEstimadoTotal = costoDevengado + costoPorTerminar;
   const verCosto = canSeeCostoEmpresa();
 
   const ranking = detalle.slice().sort((a,b)=>{
@@ -2900,7 +2970,6 @@ function renderPortfolioRentabilidad(){
   const rankingRows = ranking.map(({p,m})=>{
     const pctDev = m.devengado.pct;
     const pctProy = m.proyectadoCierre.pct;
-    const tarifaEfectiva = tarifaEfectivaProject(p);
     const descalce = projectDescalce(p);
     const descalceLabel = descalce && descalce.brecha>10
       ? '<span style="color:'+(descalce.brecha>20?'var(--red)':'var(--amber)')+'; font-weight:700">'+descalce.brecha.toFixed(0)+' pts</span>'
@@ -2908,7 +2977,6 @@ function renderPortfolioRentabilidad(){
     return '<tr class="expand-toggle" onclick="openProjectDetail(\''+p.id+'\')">'
       + '<td><b>'+p.name+'</b><div class="muted" style="font-size:11px">'+(p.client||'Sin cliente')+'</div></td>'
       + '<td class="mono" style="text-align:right">'+fmtUF(m.venta)+'</td>'
-      + '<td class="mono" style="text-align:right">'+(tarifaEfectiva!=null?fmtUF(tarifaEfectiva)+'/h':'—')+'</td>'
       + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pctDev)+'; font-weight:700">'+(pctDev==null?'—':pctDev.toFixed(0)+'%')+'</td>'
       + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pctProy)+'; font-weight:700">'+(pctProy==null?'—':pctProy.toFixed(0)+'%')+'</td>'
       + '<td class="mono" style="text-align:right">'+descalceLabel+'</td>'
@@ -2922,18 +2990,68 @@ function renderPortfolioRentabilidad(){
     if(pct>=30) sanos++; else if(pct>=15) enRiesgo++; else criticos++;
   });
 
+  // Desglose por Unidad y por Línea de Negocio: cantidad de proyectos y valor
+  // promedio por proyecto, para dimensionar el tamaño típico de venta en cada ámbito.
+  const filasUnidad = (state.config.unidades||[]).map(u=>{
+    const s = metaScopeStats('unidad', u, year);
+    return {icon:'🏢', nombre:u, s};
+  }).filter(f=>f.s.numProyectos>0);
+  const filasLinea = (state.config.lineasNegocio||[]).map(l=>l.nombre).map(l=>{
+    const s = metaScopeStats('linea', l, year);
+    return {icon:'🏷️', nombre:l, s};
+  }).filter(f=>f.s.numProyectos>0);
+  const filasDesglose = filasUnidad.concat(filasLinea).map(f=>
+    '<tr><td>'+f.icon+' <b>'+f.nombre+'</b></td>'
+    + '<td class="mono" style="text-align:right">'+f.s.numProyectos+'</td>'
+    + '<td class="mono" style="text-align:right">'+fmtUF(f.s.venta)+'</td>'
+    + '<td class="mono" style="text-align:right">'+fmtUF(f.s.promedioPorProyecto)+'</td>'
+    + '<td class="mono" style="text-align:right">'+fmtUF(f.s.facturado)+'</td>'
+    + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(f.s.margenPromedioPct)+'; font-weight:700">'+(f.s.margenPromedioPct==null?'—':f.s.margenPromedioPct.toFixed(0)+'%')+'</td>'
+    + '</tr>'
+  ).join('');
+
   return '<div class="card" style="margin-bottom:20px">'
-    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:4px">💰 Rentabilidad del Portafolio</div>'
-    + '<div class="card-sub" style="font-size:12.5px; margin-bottom:12px">🟢 '+sanos+' sano(s) · 🟡 '+enRiesgo+' en riesgo · 🔴 '+criticos+' crítico(s) — según margen proyectado al cierre</div>'
+    + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:4px">💰 Análisis Financiero General</div>'
+    + '<div class="card-sub" style="font-size:12.5px; margin-bottom:14px">🟢 '+sanos+' sano(s) · 🟡 '+enRiesgo+' en riesgo · 🔴 '+criticos+' crítico(s) — clasificación según margen proyectado al cierre de cada proyecto</div>'
+
     + '<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:16px">'
-    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Venta contratada</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(venta)+'</div></div>'
-    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen devengado</div><div class="mono" style="font-size:19px; font-weight:700; color:'+pctBadgeColor(margenDevengadoPct)+'">'+(margenDevengadoPct==null?'—':margenDevengadoPct.toFixed(1)+'%')+'</div></div>'
-    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen proyectado al cierre</div><div class="mono" style="font-size:19px; font-weight:700; color:'+pctBadgeColor(margenProyectadoPct)+'">'+(margenProyectadoPct==null?'—':margenProyectadoPct.toFixed(1)+'%')+'</div></div>'
-    + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Facturado / Pendiente</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(facturadoUF)+' / '+fmtUF(pendienteUF)+'</div></div>'
-    + (verCosto ? '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Costo devengado</div><div class="mono" style="font-size:19px; font-weight:700">'+fmtUF(costoDevengado)+'</div></div>' : '')
+    + kpiBlock('Venta contratada (total)', 'Suma del monto vendido/contratado de todos los proyectos activos que tienen un monto de venta definido.', fmtUF(venta))
+    + kpiBlock('Facturado a la fecha / esperado', 'Lo ya facturado (hitos marcados como "Facturado") comparado con el total que falta por facturar según lo vendido.', fmtUF(facturadoUF)+' <span class="muted" style="font-size:14px">/ '+fmtUF(pendienteUF)+'</span>')
+    + (verCosto ? kpiBlock('Costo devengado a la fecha / estimado por terminar', 'El costo devengado es lo que ya costó el trabajo hecho (horas + costos adicionales incurridos). El estimado por terminar es lo que costará terminar según lo proyectado.', fmtUF(costoDevengado)+' <span class="muted" style="font-size:14px">/ '+fmtUF(costoPorTerminar)+'</span>') : '')
     + '</div>'
-    + '<div class="section-label" style="margin-top:0">🚦 Rentabilidad por Proyecto (peor margen proyectado primero)</div>'
-    + '<div style="overflow-x:auto"><table><thead><tr><th>Proyecto</th><th class="num">Venta</th><th class="num">Tarifa efectiva</th><th class="num">Margen devengado</th><th class="num">Margen proyectado</th><th class="num">Descalce</th></tr></thead><tbody>'+rankingRows+'</tbody></table></div>'
+
+    + '<div style="max-width:640px; margin-bottom:20px">'
+    + metricLabel('Avance de facturación (facturado / venta contratada)', 'Qué porcentaje de lo vendido ya se ha facturado efectivamente, independiente de cuánto esfuerzo se ha ejecutado.')
+    + '<div style="margin-top:6px">'+gauge(venta, facturadoUF, v=>fmtUF(v), 'venta')+'</div>'
+    + '</div>'
+
+    + '<div class="section-label" style="margin-top:0">Márgenes consolidados del portafolio</div>'
+    + '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px">'
+    + margenCard('Margen devengado', '% sobre el esfuerzo ya valorizado — ¿el trabajo hecho hasta hoy en todo el portafolio rinde plata?', {pct:margenDevengadoPct, monto: ingresoDevengado>0 ? (ingresoDevengado-costoDevengado) : null})
+    + margenCard('Margen proyectado al cierre', '% sobre la venta total — si todos los proyectos siguen como van, ¿cómo termina el portafolio?', {pct:margenProyectadoPct, monto: venta>0 ? (venta-costoEstimadoTotal) : null})
+    + margenCard('Margen comercial de cierre', ventaCerrados>0 ? '% sobre la venta de los proyectos ya cerrados — resultado final consolidado de esos proyectos' : 'Aún no hay proyectos cerrados en la cartera', {pct:margenComercialPct, monto: ventaCerrados>0 ? (ventaCerrados-costoDevengadoCerrados) : null})
+    + '</div>'
+
+    + (filasDesglose ? (
+      '<div class="section-label">Desglose por Unidad y Línea de Negocio ('+year+')</div>'
+      + '<div style="overflow-x:auto"><table><thead><tr>'
+      + '<th>Ámbito</th>'
+      + '<th class="num" title="Cantidad de proyectos con venta definida en este ámbito">Nº Proyectos</th>'
+      + '<th class="num" title="Suma del monto vendido de todos sus proyectos">Venta total</th>'
+      + '<th class="num" title="Venta total dividida por el número de proyectos — el tamaño típico de un proyecto en este ámbito">Valor prom./proyecto</th>'
+      + '<th class="num" title="Monto ya facturado este año en este ámbito">Facturado '+year+'</th>'
+      + '<th class="num" title="Promedio ponderado del margen proyectado al cierre de sus proyectos">Margen prom.</th>'
+      + '</tr></thead><tbody>'+filasDesglose+'</tbody></table></div>'
+    ) : '')
+
+    + '<div class="section-label">🚦 Rentabilidad por Proyecto (peor margen proyectado primero)</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr>'
+    + '<th>Proyecto</th>'
+    + '<th class="num">Venta</th>'
+    + '<th class="num" title="% sobre el esfuerzo ya valorizado — rendimiento de lo ejecutado hasta hoy">Margen devengado</th>'
+    + '<th class="num" title="% sobre la venta total si el proyecto sigue como va">Margen proyectado</th>'
+    + '<th class="num" title="Diferencia entre % de esfuerzo ya ejecutado y % ya facturado — un descalce grande significa trabajo hecho que aún no se cobra">Descalce</th>'
+    + '</tr></thead><tbody>'+rankingRows+'</tbody></table></div>'
     + '</div>';
 }
 
@@ -2995,7 +3113,7 @@ function renderMetasFacturacion(){
       + '<div class="card-header"><div><div class="card-title">'+icon+' '+meta.nombre+' — Meta '+meta.periodo+'</div>'
       + '<div class="card-sub">'+stats.numProyectos+' proyecto(s) con venta · '+stats.numPersonas+' persona(s) en el equipo</div></div>'
       + '<button class="btn btn-ghost btn-sm" onclick="deleteMetaFacturacionByRef(\''+meta.tipo+'\',\''+meta.nombre.replace(/'/g,"\\'")+'\',\''+meta.periodo+'\')">Eliminar meta</button></div>'
-      + '<div style="max-width:560px; margin-bottom:14px">'+gauge(meta.metaUF, stats.facturado)+'</div>'
+      + '<div style="max-width:560px; margin-bottom:14px">'+gauge(meta.metaUF, stats.facturado, v=>fmtUF(v), 'meta')+'</div>'
       + '<div style="display:flex; gap:24px; flex-wrap:wrap">'
       + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Facturado / Meta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(stats.facturado)+' / '+fmtUF(meta.metaUF)+'</div></div>'
       + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Falta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(falta)+'</div></div>'
@@ -3091,7 +3209,8 @@ function renderDashGlobal(){
 
   let html = renderDashInsightsBanner();
 
-  html += renderPortfolioRentabilidad();
+  html += renderAnalisisFinancieroGeneral();
+  html += renderCurvasPortafolioTop();
   html += renderDashVencimientosFacturacion();
   html += renderMetasFacturacion();
   html += renderOcupacionEquipo();
@@ -3364,19 +3483,7 @@ function renderPeopleManager(p){
 // ---------- Rentabilidad y facturación del proyecto ----------
 function renderFinanzasProyecto(p){
   const m = margenesProject(p);
-  const tarifaEfectiva = tarifaEfectivaProject(p);
   const verCosto = canSeeCostoEmpresa();
-
-  const margenCard = (label, sub, data) => {
-    const pctLabel = data.pct == null ? '—' : data.pct.toFixed(1) + '%';
-    const montoLabel = data.monto == null ? '—' : fmtUF(data.monto);
-    return '<div style="background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px; flex:1; min-width:180px">'
-      + '<div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted)">'+label+'</div>'
-      + '<div style="font-size:20px; font-weight:700; font-family:JetBrains Mono, monospace; color:'+pctBadgeColor(data.pct)+'; margin-top:4px">'+pctLabel+'</div>'
-      + '<div class="mono" style="font-size:12.5px; color:var(--muted); margin-top:2px">'+montoLabel+'</div>'
-      + '<div class="muted" style="font-size:11px; margin-top:4px">'+sub+'</div>'
-      + '</div>';
-  };
 
   let html = '<div class="section-label" style="margin-top:20px">💰 Rentabilidad del proyecto</div>';
 
@@ -3385,13 +3492,12 @@ function renderFinanzasProyecto(p){
   } else {
     html += '<div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px; margin-bottom:12px">'
       + '<span class="chip">Venta contratada: <b>'+fmtUF(m.venta)+'</b></span>'
-      + '<span class="chip">Tarifa efectiva: <b>'+(tarifaEfectiva!=null ? fmtUF(tarifaEfectiva)+'/h' : '— (usa catálogo por rol)')+'</b></span>'
       + (verCosto ? '<span class="chip">Costo devengado: <b>'+fmtUF(m.costoDevengado)+'</b></span><span class="chip">Costo por terminar: <b>'+fmtUF(m.costoPorTerminar)+'</b></span>' : '<span class="chip muted">🔒 Costo empresa oculto para el rol "'+state.viewAsRole+'"</span>')
       + '</div>'
       + '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px">'
-      + margenCard('Margen devengado', '% sobre esfuerzo valorizado — ¿rinde lo ejecutado?', m.devengado)
-      + margenCard('Margen proyectado al cierre', '% sobre venta — ¿cómo termina si sigue así?', m.proyectadoCierre)
-      + margenCard('Margen comercial de cierre', p.status==='cerrado' ? '% sobre venta — cifra final' : 'Disponible al cerrar el proyecto', m.comercialCierre)
+      + margenCard('Margen devengado', '% sobre el esfuerzo ya valorizado — ¿el trabajo hecho hasta hoy rinde plata?', m.devengado)
+      + margenCard('Margen proyectado al cierre', '% sobre la venta total — si todo sigue como va, ¿cómo termina el proyecto?', m.proyectadoCierre)
+      + margenCard('Margen comercial de cierre', p.status==='cerrado' ? '% sobre la venta — resultado final, el proyecto ya cerró' : 'Se calcula solo cuando el proyecto cierra', m.comercialCierre)
       + '</div>';
   }
 
@@ -4585,8 +4691,12 @@ function renderFinanceConfigCard(){
 
   let html = '<div class="card">'
     + '<div class="card-header"><div><div class="card-title">💰 Tarifas y Costos (UF)</div><div class="card-sub">Gobierna el cálculo de tarifa efectiva y márgenes. Un cambio de tarifa rige desde su fecha de vigencia y no reescribe meses ya calculados.</div></div></div>'
-    + '<div class="form-grid" style="max-width:320px; margin-bottom:16px">'
+    + '<div class="form-grid" style="max-width:320px; margin-bottom:6px">'
     + '<div class="field"><label>Valor UF de referencia (CLP)</label><input id="cfg_valorUF" type="number" min="0" step="0.01" value="'+(cfg.valorUF||0)+'" onchange="saveValorUF(this.value)"></div>'
+    + '</div>'
+    + '<div class="muted" style="font-size:11.5px; margin-bottom:16px">'
+    + (cfg.valorUFFecha ? '🔄 Se actualiza sola cada día · última actualización automática: '+cfg.valorUFFecha : '🔄 Se actualiza sola cada día (aún no se ha actualizado automáticamente en este navegador)')
+    + ' · <a href="#" onclick="actualizarValorUFAutomatico(true); return false;" style="color:var(--teal); font-weight:600">Actualizar ahora</a>'
     + '</div>'
 
     + '<div class="section-label">Tarifas de venta por rol (catálogo)</div>'
@@ -4608,6 +4718,7 @@ function renderFinanceConfigCard(){
 }
 function saveValorUF(val){
   state.config.valorUF = Number(val)||0;
+  state.config.valorUFFecha = todayISO(); // edición manual: no se sobrescribe con la auto-actualización de hoy
   persistConfig(); renderAll(); showToast('Valor UF actualizado.');
 }
 function openTarifaModal(kind){
