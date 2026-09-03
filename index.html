@@ -337,7 +337,7 @@ function parseMonthLabel(label){ // 'marzo 2026' / 'MarzO   2026' / 'Marzo, 2026
 }
 
 // ---------- Storage (Firebase Firestore) ----------
-function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, valorUFFecha:null, tarifasPorRol:[], costoEmpresaPorRol:[], metasFacturacion:[]}; }
+function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, valorUFFecha:null, tarifasPorRol:[], costoEmpresaPorRol:[], metasFacturacion:[], currencyMigratedToCLP:true}; }
 function migrateConfigShape(){
   if(!state.config.unidades) state.config.unidades=[];
   if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
@@ -351,6 +351,30 @@ function migrateConfigShape(){
   if(!state.config.costoEmpresaPorRol){ state.config.costoEmpresaPorRol = []; changed = true; }
   if(!state.config.metasFacturacion){ state.config.metasFacturacion = []; changed = true; }
   return changed;
+}
+// Todos los montos de la app se muestran y calculan en CLP (nunca UF): un monto
+// vendido o una tarifa quedan fijos en pesos al momento de ingresarlos, y no se
+// vuelven a recalcular con el valor UF del día (eso movería márgenes y metas sin
+// que nada haya cambiado realmente). Quien ya tenía datos cargados en UF (antes de
+// este cambio) los convierte una sola vez aquí, usando el valor UF vigente al
+// momento de actualizar la app — de ahí en adelante todo queda en CLP fijo.
+function migrateCurrencyToCLP(){
+  if(state.config.currencyMigratedToCLP) return false;
+  const valorUF = Number(state.config.valorUF)||0;
+  if(valorUF>0){
+    state.projects.forEach(p=>{
+      if(p.montoVenta) p.montoVenta = Math.round(p.montoVenta*valorUF);
+      (p.costosAdicionales||[]).forEach(c=>{
+        if(c.montoUF) c.montoUF = Math.round(c.montoUF*valorUF);
+        if(c.tarifaUFHora) c.tarifaUFHora = Math.round(c.tarifaUFHora*valorUF);
+      });
+    });
+    (state.config.tarifasPorRol||[]).forEach(t=>{ if(t.valorUF) t.valorUF = Math.round(t.valorUF*valorUF); });
+    (state.config.costoEmpresaPorRol||[]).forEach(t=>{ if(t.valorUF) t.valorUF = Math.round(t.valorUF*valorUF); });
+    (state.config.metasFacturacion||[]).forEach(m=>{ if(m.metaUF) m.metaUF = Math.round(m.metaUF*valorUF); });
+  }
+  state.config.currencyMigratedToCLP = true;
+  return true;
 }
 function getUnidadForLinea(lineaNombre){
   const l = (state.config.lineasNegocio||[]).find(x=>x.nombre===lineaNombre);
@@ -432,7 +456,9 @@ function initLocalStorageSync(){
   state.loaded = true;
   state.capacityMonth = currentMonth();
   migrateProjectPeople();
-  if(migrateConfigShape()) persistConfig();
+  let configChanged = migrateConfigShape();
+  if(migrateCurrencyToCLP()){ configChanged = true; persistProjects(); }
+  if(configChanged) persistConfig();
   renderTopButtons();
   renderAll();
   actualizarValorUFAutomatico();
@@ -444,6 +470,11 @@ function initLocalStorageSync(){
 // También se pueden restaurar manualmente desde Configuración si se borran o
 // se quiere volver a mostrar una demo limpia a la empresa.
 function buildDemoData(){
+  // Los montos de ejemplo se escriben como "tantas UF" solo para que se lea fácil
+  // en el código (son cifras típicas de tarifas/ventas en Chile), pero se guardan
+  // ya convertidos a CLP fijo — igual que hará la app con cualquier dato real.
+  const UF = 40873.77;
+  const clp = uf => Math.round(uf*UF);
   const person = (name, role, lineaNegocio) => ({id: uid('pers'), name, role, lineaNegocio});
   const people = [
     person('Ricardo Klempau', 'Director de Proyecto', 'GAL'),
@@ -467,27 +498,28 @@ function buildDemoData(){
     targetProjectPct: 80,
     targetAdminPct: 20,
     monthlyCapacity: 180,
-    valorUF: 40873.77,
+    valorUF: UF,
+    currencyMigratedToCLP: true,
     tarifasPorRol: [
-      {rol:'Director de Proyecto', valorUF:5.0, vigenciaDesde:'2026-01'},
-      {rol:'Gerente de Unidad', valorUF:4.5, vigenciaDesde:'2026-01'},
-      {rol:'Jefe de Proyecto', valorUF:3.2, vigenciaDesde:'2026-01'},
-      {rol:'Consultor Senior', valorUF:2.8, vigenciaDesde:'2026-01'},
-      {rol:'Consultor', valorUF:2.0, vigenciaDesde:'2026-01'},
-      {rol:'Analista', valorUF:1.5, vigenciaDesde:'2026-01'}
+      {rol:'Director de Proyecto', valorUF:clp(5.0), vigenciaDesde:'2026-01'},
+      {rol:'Gerente de Unidad', valorUF:clp(4.5), vigenciaDesde:'2026-01'},
+      {rol:'Jefe de Proyecto', valorUF:clp(3.2), vigenciaDesde:'2026-01'},
+      {rol:'Consultor Senior', valorUF:clp(2.8), vigenciaDesde:'2026-01'},
+      {rol:'Consultor', valorUF:clp(2.0), vigenciaDesde:'2026-01'},
+      {rol:'Analista', valorUF:clp(1.5), vigenciaDesde:'2026-01'}
     ],
     costoEmpresaPorRol: [
-      {rol:'Director de Proyecto', valorUF:3.0, vigenciaDesde:'2026-01'},
-      {rol:'Gerente de Unidad', valorUF:2.7, vigenciaDesde:'2026-01'},
-      {rol:'Jefe de Proyecto', valorUF:1.9, vigenciaDesde:'2026-01'},
-      {rol:'Consultor Senior', valorUF:1.6, vigenciaDesde:'2026-01'},
-      {rol:'Consultor', valorUF:1.2, vigenciaDesde:'2026-01'},
-      {rol:'Analista', valorUF:0.9, vigenciaDesde:'2026-01'}
+      {rol:'Director de Proyecto', valorUF:clp(3.0), vigenciaDesde:'2026-01'},
+      {rol:'Gerente de Unidad', valorUF:clp(2.7), vigenciaDesde:'2026-01'},
+      {rol:'Jefe de Proyecto', valorUF:clp(1.9), vigenciaDesde:'2026-01'},
+      {rol:'Consultor Senior', valorUF:clp(1.6), vigenciaDesde:'2026-01'},
+      {rol:'Consultor', valorUF:clp(1.2), vigenciaDesde:'2026-01'},
+      {rol:'Analista', valorUF:clp(0.9), vigenciaDesde:'2026-01'}
     ],
     metasFacturacion: [
-      {tipo:'unidad', nombre:'Circular HR', periodo:'2026', metaUF:900},
-      {tipo:'unidad', nombre:'Expande Minería', periodo:'2026', metaUF:300},
-      {tipo:'linea', nombre:'GAL', periodo:'2026', metaUF:600}
+      {tipo:'unidad', nombre:'Circular HR', periodo:'2026', metaUF:clp(900)},
+      {tipo:'unidad', nombre:'Expande Minería', periodo:'2026', metaUF:clp(300)},
+      {tipo:'linea', nombre:'GAL', periodo:'2026', metaUF:clp(600)}
     ]
   };
 
@@ -496,7 +528,7 @@ function buildDemoData(){
     proj('Homologación de Cargos Codelco', {
       lineaNegocio:'GAL', pep:'2332.N.F99', client:'Codelco', status:'activo',
       fechaInicio:'2026-06-01', fechaCierre:'2026-11-30', startMonth:'2026-06', endMonth:'2026-11',
-      montoVenta: 540,
+      montoVenta: clp(540),
       assignments: [
         {role:'Jefe de Proyecto', projectedByMonth:{'2026-06':15,'2026-07':15,'2026-08':15,'2026-09':15,'2026-10':15,'2026-11':10}},
         {role:'Consultor Senior', projectedByMonth:{'2026-06':25,'2026-07':25,'2026-08':25,'2026-09':25,'2026-10':20,'2026-11':15}}
@@ -507,14 +539,14 @@ function buildDemoData(){
         {id:uid('hito'), nombre:'Entrega final', pctVenta:40, fecha:'2026-11-30', estado:'pendiente'}
       ],
       costosAdicionales: [
-        {id:uid('costo'), concepto:'Consultor externo — validación de escalas', categoria:'consultor_externo', modalidad:'tarifa_hora', tarifaUFHora:1.4, horas:20, estado:'incurrido'},
-        {id:uid('costo'), concepto:'Licencia software de compensaciones', categoria:'material', modalidad:'monto_fijo', montoUF:8, estado:'estimado'}
+        {id:uid('costo'), concepto:'Consultor externo — validación de escalas', categoria:'consultor_externo', modalidad:'tarifa_hora', tarifaUFHora:clp(1.4), horas:20, estado:'incurrido'},
+        {id:uid('costo'), concepto:'Licencia software de compensaciones', categoria:'material', modalidad:'monto_fijo', montoUF:clp(8), estado:'estimado'}
       ]
     }),
     proj('Estudio de Brechas Salariales', {
       lineaNegocio:'Consultoría Minera', pep:'4410.E.M12', client:'Expande Minería', status:'activo',
       fechaInicio:'2026-07-01', fechaCierre:'2026-10-31', startMonth:'2026-07', endMonth:'2026-10',
-      montoVenta: 345,
+      montoVenta: clp(345),
       assignments: [
         {role:'Jefe de Proyecto', projectedByMonth:{'2026-07':18,'2026-08':18,'2026-09':18,'2026-10':16}},
         {role:'Consultor Senior', projectedByMonth:{'2026-07':22,'2026-08':22,'2026-09':22,'2026-10':14}}
@@ -527,7 +559,7 @@ function buildDemoData(){
     proj('Diseño Organizacional Minera Escondida', {
       lineaNegocio:'TCT', pep:'5108.T.C03', client:'Minera Escondida', status:'pausa',
       fechaInicio:'2026-05-01', fechaCierre:'2026-12-31', startMonth:'2026-05', endMonth:'2026-12',
-      montoVenta: 150,
+      montoVenta: clp(150),
       assignments: [
         {role:'Consultor', projectedByMonth:{'2026-05':12,'2026-06':12}},
         {role:'Analista', projectedByMonth:{'2026-05':8,'2026-06':8}}
@@ -539,7 +571,7 @@ function buildDemoData(){
     proj('Rediseño de Bandas Salariales', {
       lineaNegocio:'GAL', pep:'1876.N.B21', client:'Aguas Andinas', status:'cerrado',
       fechaInicio:'2026-01-01', fechaCierre:'2026-05-31', startMonth:'2026-01', endMonth:'2026-05',
-      montoVenta: 128,
+      montoVenta: clp(128),
       assignments: [
         {role:'Jefe de Proyecto', projectedByMonth:{'2026-01':10,'2026-02':10,'2026-03':10,'2026-04':5}},
         {role:'Consultor Senior', projectedByMonth:{'2026-01':15,'2026-02':15,'2026-03':10}}
@@ -831,10 +863,42 @@ function projectTotals(project){
   return { projectedHours, actualHours };
 }
 
-// ---------- Capa financiera: tarifas, costos y márgenes (UF) ----------
+// ---------- Capa financiera: tarifas, costos y márgenes (CLP) ----------
+// Todo monto de la app (venta, tarifas, metas, costos) se guarda y calcula en
+// CLP fijo, nunca en UF: si se re-derivara desde el valor UF del día, los
+// márgenes y metas ya cerrados irían "moviéndose solos" con la inflación aunque
+// nada del proyecto haya cambiado — justo lo que la consultora quiere evitar.
+// La UF solo se usa como ayuda para tipear: estos pares de campos UF/CLP
+// enlazados permiten cargar el dato en cualquiera de las dos unidades, pero lo
+// que realmente se guarda es siempre el campo CLP, convertido una sola vez al
+// momento de ingresarlo (no se vuelve a recalcular después).
 function fmtUF(n){ return new Intl.NumberFormat('es-CL',{maximumFractionDigits:1}).format(n||0)+' UF'; }
 function fmtCLP(n){ return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(n||0); }
 function ufToCLP(uf){ return Number(uf||0) * Number(state.config.valorUF||0); }
+function clpToUF(clp){ const v=Number(state.config.valorUF||0); return v>0 ? Number(clp||0)/v : 0; }
+function renderUfClpField(ufId, clpId, label, currentCLP, help){
+  const clp = Math.round(Number(currentCLP||0));
+  const uf = clpToUF(clp);
+  return '<div class="field" style="grid-column:1/-1"><label>'+label+'</label>'
+    + '<div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">'
+    + '<div style="flex:1; min-width:170px"><input id="'+clpId+'" type="number" min="0" step="1" value="'+(clp||'')+'" placeholder="$ 0" oninput="syncUfClp(\''+ufId+'\',\''+clpId+'\',\'clp\')"><div class="muted" style="font-size:11px; margin-top:3px">Pesos chilenos (CLP) — este es el valor que se guarda</div></div>'
+    + '<div class="muted" style="padding-bottom:22px">o</div>'
+    + '<div style="flex:1; min-width:130px"><input id="'+ufId+'" type="number" min="0" step="0.01" value="'+(clp>0?Number(uf.toFixed(2)):'')+'" placeholder="0" oninput="syncUfClp(\''+ufId+'\',\''+clpId+'\',\'uf\')"><div class="muted" style="font-size:11px; margin-top:3px">Unidades de Fomento (UF), solo de referencia al ingresar</div></div>'
+    + '</div>'
+    + (help ? '<p class="muted" style="font-size:11.5px; margin-top:6px">'+help+'</p>' : '')
+    + '</div>';
+}
+function syncUfClp(ufId, clpId, source){
+  const ufEl = document.getElementById(ufId), clpEl = document.getElementById(clpId);
+  if(!ufEl || !clpEl) return;
+  if(source==='uf'){
+    const uf = Number(ufEl.value)||0;
+    clpEl.value = uf>0 ? Math.round(ufToCLP(uf)) : '';
+  } else {
+    const clp = Number(clpEl.value)||0;
+    ufEl.value = clp>0 ? Number(clpToUF(clp).toFixed(2)) : '';
+  }
+}
 
 // ---------- Valor UF: se actualiza solo una vez al día contra un servicio público ----------
 function todayISO(){ return new Date().toISOString().slice(0,10); }
@@ -993,11 +1057,11 @@ function kpiBlock(label, tip, valueHtml, sub){
     + '</div>';
 }
 // Card de margen (usada tanto a nivel de un proyecto como a nivel global/portafolio):
-// muestra el % con color semáforo, el monto en UF y una explicación en lenguaje simple
+// muestra el % con color semáforo, el monto en CLP y una explicación en lenguaje simple
 // de qué pregunta responde esa lectura de margen.
 function margenCard(label, sub, data){
   const pctLabel = data.pct == null ? '—' : data.pct.toFixed(1) + '%';
-  const montoLabel = data.monto == null ? '—' : fmtUF(data.monto);
+  const montoLabel = data.monto == null ? '—' : fmtCLP(data.monto);
   return '<div style="background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px; flex:1; min-width:180px">'
     + '<div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted)">'+label+'</div>'
     + '<div style="font-size:20px; font-weight:700; font-family:JetBrains Mono, monospace; color:'+pctBadgeColor(data.pct)+'; margin-top:4px">'+pctLabel+'</div>'
@@ -1007,6 +1071,9 @@ function margenCard(label, sub, data){
 }
 
 // ---------- Metas de facturación por Unidad / Línea de Negocio ----------
+function findMetaConfig(tipo, nombre, year){
+  return (state.config.metasFacturacion||[]).find(m=>m.tipo===tipo && m.nombre===nombre && String(m.periodo)===String(year));
+}
 // El "monto por persona" es un promedio referencial (meta ÷ dotación), no una cuota
 // justa por persona: roles distintos facturan a tarifas distintas. Se etiqueta así
 // en la interfaz para que no se lea como una meta individual real.
@@ -1110,6 +1177,7 @@ function renderMacroNav(){
     + '<div class="macro-tabs">'
     + '<button class="macro-tab '+(state.macroSection==='hh'?'active':'')+'" onclick="switchMacroSection(\'hh\')">📋 Horas y Márgenes por Proyecto</button>'
     + '<button class="macro-tab '+(state.macroSection==='comercial'?'active':'')+'" onclick="switchMacroSection(\'comercial\')">📈 Pipeline y Comercial <span class="soon-badge">Próximamente</span></button>'
+    + '<button class="macro-tab '+(state.macroSection==='gantt'?'active':'')+'" onclick="switchMacroSection(\'gantt\')">📆 Gantt Facturación</button>'
     + '</div>'
     + '<button class="topbar-btn topbar-btn-secondary" onclick="toggleTheme()" title="Cambiar Tema">' + (isDark ? '☀️ Claro' : '🌙 Oscuro') + '</button>'
     + '</div>';
@@ -1182,7 +1250,7 @@ function renderKPIs(){
     .reduce((s,p)=>s+Number(p.montoVenta||0), 0);
   el.innerHTML = ''
     + '<div class="kpi"><div class="kpi-label">Proyectos activos</div><div class="kpi-value">'+activeProjects+'</div></div>'
-    + '<div class="kpi"><div class="kpi-label">Venta contratada a la fecha</div><div class="kpi-value amber">'+fmtUF(ventaContratada)+'</div></div>'
+    + '<div class="kpi"><div class="kpi-label">Venta contratada a la fecha</div><div class="kpi-value amber">'+fmtCLP(ventaContratada)+'</div></div>'
     + '<div class="kpi"><div class="kpi-label">HH proyectadas</div><div class="kpi-value">'+fmtH(totalProj)+'</div></div>'
     + '<div class="kpi"><div class="kpi-label">HH reales</div><div class="kpi-value teal">'+fmtH(totalAct)+'</div></div>'
     + '<div class="kpi"><div class="kpi-label">Avance portafolio</div><div class="kpi-value">'+avance+'</div></div>';
@@ -1205,12 +1273,94 @@ function renderPipelineComercialPlaceholder(){
     + '</div></div>';
 }
 
+// Gantt de facturación: una fila por proyecto, una columna por mes, con lo
+// planificado (según fecha de hitos) y lo realmente facturado — la vista mensual
+// que pedía el usuario para ver de un vistazo cómo viene la facturación del año.
+function renderGanttFacturacion(){
+  if(!state.ganttYear) state.ganttYear = String(new Date().getFullYear());
+  const year = state.ganttYear;
+  const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const projectsConHitos = state.projects.filter(p=>p.tipo!=='admin' && (p.hitosFacturacion||[]).length>0);
+
+  const yearOpts = getAvailableYears().map(y=>'<option value="'+y+'" '+(y===year?'selected':'')+'>'+y+'</option>').join('');
+  const header = '<div class="card-header"><div><div class="card-title">📆 Gantt de Facturación — '+year+'</div><div class="card-sub">Monto planificado (según hitos) y facturado real, mes a mes, por proyecto</div></div>'
+    + '<select onchange="state.ganttYear=this.value; renderContent();" style="max-width:130px">'+yearOpts+'</select></div>';
+
+  if(projectsConHitos.length===0){
+    return '<div class="card">'+header+'<div class="empty"><p>Ningún proyecto tiene hitos de facturación definidos todavía. Agrégalos desde "Horas y Márgenes por Proyecto" → Gestionar Proyectos → detalle del proyecto → Hitos de facturación.</p></div></div>';
+  }
+
+  const hoy = todayISO().slice(0,7);
+  const totalesPlan = Array(12).fill(0), totalesReal = Array(12).fill(0);
+
+  const cellHtml = (plan, real, mesKey) => {
+    if(plan===0 && real===0) return '<td class="muted" style="text-align:center; font-size:11px">—</td>';
+    const vencidoSinFacturar = plan>0 && real<plan && mesKey<hoy;
+    const color = (plan>0 && real>=plan) ? 'var(--teal)' : (vencidoSinFacturar ? 'var(--red)' : 'var(--amber)');
+    return '<td style="text-align:center; padding:6px 4px" title="Plan: '+fmtCLP(plan)+' · Real: '+fmtCLP(real)+'">'
+      + '<div style="font-weight:700; font-size:11px; color:'+color+'">'+(real>0?fmtCLP(real):'—')+'</div>'
+      + (plan>0 ? '<div class="muted" style="font-size:9.5px; margin-top:1px">plan '+fmtCLP(plan)+'</div>' : '')
+      + '</td>';
+  };
+
+  const rows = projectsConHitos.map(p=>{
+    const planPorMes = Array(12).fill(0), realPorMes = Array(12).fill(0);
+    (p.hitosFacturacion||[]).forEach(h=>{
+      const montoHito = Number(p.montoVenta||0)*Number(h.pctVenta||0)/100;
+      if(h.fecha && h.fecha.slice(0,4)===year){
+        const mNum = parseInt(h.fecha.slice(5,7),10);
+        if(mNum>=1 && mNum<=12) planPorMes[mNum-1] += montoHito;
+      }
+      if(h.estado==='facturado'){
+        const fechaReal = h.fechaFacturado || h.fecha;
+        if(fechaReal && fechaReal.slice(0,4)===year){
+          const mNum = parseInt(fechaReal.slice(5,7),10);
+          if(mNum>=1 && mNum<=12) realPorMes[mNum-1] += montoHito;
+        }
+      }
+    });
+    let totalPlan=0, totalReal=0;
+    const cells = monthsShort.map((_,i)=>{
+      totalesPlan[i]+=planPorMes[i]; totalesReal[i]+=realPorMes[i];
+      totalPlan+=planPorMes[i]; totalReal+=realPorMes[i];
+      return cellHtml(planPorMes[i], realPorMes[i], year+'-'+String(i+1).padStart(2,'0'));
+    }).join('');
+    return '<tr class="expand-toggle" onclick="openProjectDetail(\''+p.id+'\')">'
+      + '<td><b>'+p.name+'</b><div class="muted" style="font-size:11px">'+(p.lineaNegocio||'Sin línea de negocio')+'</div></td>'
+      + cells
+      + '<td class="mono" style="text-align:right; font-weight:700">'+fmtCLP(totalPlan)+'</td>'
+      + '<td class="mono" style="text-align:right; font-weight:700; color:var(--teal)">'+fmtCLP(totalReal)+'</td>'
+      + '</tr>';
+  }).join('');
+
+  const totalPlanAnual = totalesPlan.reduce((a,b)=>a+b,0);
+  const totalRealAnual = totalesReal.reduce((a,b)=>a+b,0);
+  const totalRow = '<tr style="background:var(--bg)"><td><b>Total portafolio</b></td>'
+    + monthsShort.map((_,i)=>cellHtml(totalesPlan[i], totalesReal[i], year+'-'+String(i+1).padStart(2,'0'))).join('')
+    + '<td class="mono" style="text-align:right; font-weight:800">'+fmtCLP(totalPlanAnual)+'</td>'
+    + '<td class="mono" style="text-align:right; font-weight:800; color:var(--teal)">'+fmtCLP(totalRealAnual)+'</td></tr>';
+
+  return '<div class="card">'
+    + header
+    + '<div style="display:flex; gap:8px; align-items:center; font-size:12px; margin-bottom:12px; flex-wrap:wrap">'
+    + '<span style="display:flex; align-items:center; gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--teal);display:inline-block"></span> Facturado completo</span>'
+    + '<span style="display:flex; align-items:center; gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--amber);display:inline-block"></span> Pendiente (aún no vence)</span>'
+    + '<span style="display:flex; align-items:center; gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--red);display:inline-block"></span> Vencido sin facturar</span>'
+    + '</div>'
+    + '<div style="overflow-x:auto"><table style="min-width:1040px"><thead><tr><th>Proyecto</th>'+monthsShort.map(m=>'<th style="text-align:center">'+m+'</th>').join('')+'<th class="num">Total Plan</th><th class="num">Total Real</th></tr></thead><tbody>'+rows+totalRow+'</tbody></table></div>'
+    + '</div>';
+}
+
 function renderContent(){
   const el = document.getElementById('content');
   if(!state.loaded){ el.innerHTML = '<div class="loading">Cargando datos…</div>'; return; }
   renderSubnav();
   if(state.macroSection === 'comercial'){
     el.innerHTML = renderPipelineComercialPlaceholder();
+    return;
+  }
+  if(state.macroSection === 'gantt'){
+    el.innerHTML = renderGanttFacturacion();
     return;
   }
   if(state.detailView && state.detailView.type==='project'){
@@ -1234,8 +1384,11 @@ function renderContent(){
 }
 
 // ---------- Vista de detalle (proyecto / persona) ----------
-function openProjectDetail(id){ state.detailView = {type:'project', id}; renderContent(); }
-function openPersonDetail(id){ state.detailView = {type:'person', id}; renderContent(); }
+// El detalle de proyecto/persona vive dentro de "Horas y Márgenes por Proyecto":
+// si se abre desde otra macro sección (ej. una fila del Gantt de Facturación),
+// cambia de sección para que la página de detalle realmente se vea.
+function openProjectDetail(id){ state.macroSection = 'hh'; state.detailView = {type:'project', id}; renderTopButtons(); renderContent(); }
+function openPersonDetail(id){ state.macroSection = 'hh'; state.detailView = {type:'person', id}; renderTopButtons(); renderContent(); }
 function closeDetailView(){ state.detailView = null; renderAll(); }
 
 // ---------- Dashboard ----------
@@ -1602,59 +1755,6 @@ function renderDashboardCharts(){
     });
   }
 
-  // 1a. Curva S del Portafolio (avance acumulado, solo proyectos cliente)
-  const ctxCurvaS = document.getElementById('chartCurvaSPortafolio');
-  if(ctxCurvaS){
-    if(activeCharts.curvaSPortafolio){ activeCharts.curvaSPortafolio.destroy(); activeCharts.curvaSPortafolio=null; }
-
-    const monthsShort = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    const projS = Array(12).fill(0);
-    const actS = Array(12).fill(0);
-
-    state.projects.forEach(p => {
-      if(p.tipo === 'admin') return;
-      (p.assignments||[]).forEach(a => {
-        Object.entries(a.projectedByMonth||{}).forEach(([monthKey, hours]) => {
-          if(isMonthInFilter(monthKey)){
-            const mNum = parseInt(monthKey.slice(5, 7), 10);
-            if(mNum >= 1 && mNum <= 12) projS[mNum - 1] += Number(hours||0);
-          }
-        });
-      });
-    });
-    state.realEntries.forEach(e => {
-      if(e.category === 'admin' || !e.month || !isMonthInFilter(e.month)) return;
-      const proj = state.projects.find(p => p.id === e.projectId);
-      if(proj && proj.tipo === 'admin') return;
-      const mNum = parseInt(e.month.slice(5, 7), 10);
-      if(mNum >= 1 && mNum <= 12) actS[mNum - 1] += Number(e.hours||0);
-    });
-
-    let cumProj = 0, cumAct = 0;
-    const cumProjData = [], cumActData = [];
-    for(let i=0;i<12;i++){ cumProj += projS[i]; cumAct += actS[i]; cumProjData.push(cumProj); cumActData.push(cumAct); }
-
-    activeCharts.curvaSPortafolio = new Chart(ctxCurvaS, {
-      type: 'line',
-      data: {
-        labels: monthsShort,
-        datasets: [
-          { label: 'Plan acumulado', data: cumProjData, borderColor: '#1E2A5E', backgroundColor: 'rgba(30,42,94,0.08)', fill: true, tension: 0.25 },
-          { label: 'Real acumulado', data: cumActData, borderColor: '#1E9E8B', backgroundColor: 'rgba(30,158,139,0.12)', fill: true, tension: 0.25 }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmtH(c.raw) + ' h'; } } }
-        },
-        scales: { y: { beginAtZero: true, ticks: { callback: function(val){ return val + ' h'; } } } }
-      }
-    });
-  }
-
   // 1a-bis. Curva de Facturación del Portafolio (plan según fecha de hitos vs. real facturado)
   const ctxFactPortafolio = document.getElementById('chartCurvaFacturacionPortafolio');
   if(ctxFactPortafolio){
@@ -1689,8 +1789,8 @@ function renderDashboardCharts(){
         {label:'Facturado real', data:cumRealData, borderColor:'#1E9E8B', backgroundColor:'rgba(30,158,139,0.12)', fill:true, tension:0.25}
       ]},
       options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{position:'top'}, tooltip:{callbacks:{label:function(c){ return c.dataset.label+': '+fmtUF(c.raw); }}} },
-        scales:{ y:{ beginAtZero:true, ticks:{ callback:function(v){ return fmtUF(v); } } } }
+        plugins:{ legend:{position:'top'}, tooltip:{callbacks:{label:function(c){ return c.dataset.label+': '+fmtCLP(c.raw); }}} },
+        scales:{ y:{ beginAtZero:true, ticks:{ callback:function(v){ return fmtCLP(v); } } } }
       }
     });
   }
@@ -1857,8 +1957,8 @@ function createFacturacionMultiLineChart(canvasId, chartKey, scopeType){
     data: { labels: monthsShort, datasets: datasets.length ? datasets : [{label:'Sin datos', data:Array(12).fill(0), borderColor:'#94A3B8'}] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: function(c){ return c.dataset.label+': '+fmtUF(c.raw); } } } },
-      scales: { y: { beginAtZero: true, ticks: { callback: function(v){ return fmtUF(v); } } } }
+      plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: function(c){ return c.dataset.label+': '+fmtCLP(c.raw); } } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: function(v){ return fmtCLP(v); } } } }
     }
   });
 }
@@ -2012,12 +2112,6 @@ function renderCurvasPortafolioTop(){
     + '<div class="card-title" style="font-size:15px; font-weight:700">💵 Curva de Facturación del Portafolio — Acumulado</div>'
     + '<div class="card-sub" style="font-size:12px">Monto planificado (según fecha de hitos) vs. monto realmente facturado, acumulado mes a mes</div>'
     + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaFacturacionPortafolio"></canvas></div>'
-    + '</div>'
-
-    + '<div class="card" style="margin-bottom:20px;">'
-    + '<div class="card-title" style="font-size:15px; font-weight:700">📈 Curva S del Portafolio — Avance Acumulado de Horas (Proyectos Cliente)</div>'
-    + '<div class="card-sub" style="font-size:12px">Horas planificadas vs. reales acumuladas mes a mes en toda la cartera de proyectos de clientes</div>'
-    + '<div style="height:280px; position:relative; margin-top:10px"><canvas id="chartCurvaSPortafolio"></canvas></div>'
     + '</div>';
 }
 
@@ -3039,21 +3133,29 @@ function renderAnalisisFinancieroGeneral(){
   if(projectsConVenta.length===0) return '';
   const year = String(new Date().getFullYear());
 
-  let venta=0, costoDevengado=0, ingresoDevengado=0, costoPorTerminar=0, facturadoUF=0;
-  let ventaCerrados=0, costoDevengadoCerrados=0;
+  let venta=0;
   const detalle = projectsConVenta.map(p=>{
     const m = margenesProject(p);
-    venta += m.venta; costoDevengado += m.costoDevengado; ingresoDevengado += m.ingresoDevengado; costoPorTerminar += m.costoPorTerminar;
-    (p.hitosFacturacion||[]).forEach(h=>{ if(h.estado==='facturado') facturadoUF += Number(p.montoVenta||0)*Number(h.pctVenta||0)/100; });
-    if(p.status==='cerrado'){ ventaCerrados += m.venta; costoDevengadoCerrados += m.costoDevengado; }
+    venta += m.venta;
     return {p, m};
   });
-  const margenDevengadoPct = ingresoDevengado > 0 ? ((ingresoDevengado-costoDevengado)/ingresoDevengado*100) : null;
-  const margenProyectadoPct = venta > 0 ? ((venta-(costoDevengado+costoPorTerminar))/venta*100) : null;
-  const margenComercialPct = ventaCerrados > 0 ? ((ventaCerrados-costoDevengadoCerrados)/ventaCerrados*100) : null;
-  const pendienteUF = venta - facturadoUF;
-  const costoEstimadoTotal = costoDevengado + costoPorTerminar;
-  const verCosto = canSeeCostoEmpresa();
+  const facturadoUF = facturadoUFEnAnio(projectsConVenta, year);
+  const numProyectos = projectsConVenta.length;
+  const promedioPorProyectoUF = numProyectos>0 ? venta/numProyectos : 0;
+
+  const metaPortafolioUF = (state.config.unidades||[]).reduce((s,u)=>{
+    const mc = findMetaConfig('unidad', u, year);
+    return s + (mc ? Number(mc.metaUF||0) : 0);
+  }, 0);
+  const hayMetaPortafolio = (state.config.unidades||[]).some(u=>findMetaConfig('unidad', u, year));
+  const avanceMetaPct = (hayMetaPortafolio && metaPortafolioUF>0) ? (facturadoUF/metaPortafolioUF*100) : null;
+
+  let sanos=0, enRiesgo=0, criticos=0;
+  detalle.forEach(({m})=>{
+    const pct = m.proyectadoCierre.pct;
+    if(pct==null) return;
+    if(pct>=30) sanos++; else if(pct>=15) enRiesgo++; else criticos++;
+  });
 
   const ranking = detalle.slice().sort((a,b)=>{
     const pa = a.m.proyectadoCierre.pct==null ? 999 : a.m.proyectadoCierre.pct;
@@ -3063,66 +3165,47 @@ function renderAnalisisFinancieroGeneral(){
   const rankingRows = ranking.map(({p,m})=>{
     const pctDev = m.devengado.pct;
     const pctProy = m.proyectadoCierre.pct;
-    const descalce = projectDescalce(p);
-    const descalceLabel = descalce && descalce.brecha>10
-      ? '<span style="color:'+(descalce.brecha>20?'var(--red)':'var(--amber)')+'; font-weight:700">'+descalce.brecha.toFixed(0)+' pts</span>'
-      : '<span class="muted">—</span>';
+    const t = projectTotals(p);
     return '<tr class="expand-toggle" onclick="openProjectDetail(\''+p.id+'\')">'
-      + '<td><b>'+p.name+'</b><div class="muted" style="font-size:11px">'+(p.client||'Sin cliente')+'</div></td>'
-      + '<td class="mono" style="text-align:right">'+fmtUF(m.venta)+'</td>'
-      + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pctDev)+'; font-weight:700">'+(pctDev==null?'—':pctDev.toFixed(0)+'%')+'</td>'
+      + '<td><b>'+p.name+'</b><div class="muted" style="font-size:11px">'+(p.lineaNegocio||'Sin línea de negocio')+'</div></td>'
+      + '<td class="mono" style="text-align:right">'+fmtCLP(m.venta)+'</td>'
       + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pctProy)+'; font-weight:700">'+(pctProy==null?'—':pctProy.toFixed(0)+'%')+'</td>'
-      + '<td class="mono" style="text-align:right">'+descalceLabel+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(pctDev)+'; font-weight:700">'+(pctDev==null?'—':pctDev.toFixed(0)+'%')+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(t.projectedHours)+' h</td>'
+      + '<td class="mono" style="text-align:right">'+fmtH(t.actualHours)+' h</td>'
       + '</tr>';
   }).join('');
 
-  let sanos=0, enRiesgo=0, criticos=0;
-  detalle.forEach(({m})=>{
-    const pct = m.proyectadoCierre.pct;
-    if(pct==null) return;
-    if(pct>=30) sanos++; else if(pct>=15) enRiesgo++; else criticos++;
-  });
-
-  // Desglose por Unidad y por Línea de Negocio: cantidad de proyectos y valor
-  // promedio por proyecto, para dimensionar el tamaño típico de venta en cada ámbito.
+  // Desglose por Unidad y por Línea de Negocio.
   const filasUnidad = (state.config.unidades||[]).map(u=>{
     const s = metaScopeStats('unidad', u, year);
-    return {icon:'🏢', nombre:u, s};
+    const mc = findMetaConfig('unidad', u, year);
+    return {icon:'🏢', nombre:u, s, metaUF: mc ? Number(mc.metaUF||0) : null};
   }).filter(f=>f.s.numProyectos>0);
   const filasLinea = (state.config.lineasNegocio||[]).map(l=>l.nombre).map(l=>{
     const s = metaScopeStats('linea', l, year);
-    return {icon:'🏷️', nombre:l, s};
+    const mc = findMetaConfig('linea', l, year);
+    return {icon:'🏷️', nombre:l, s, metaUF: mc ? Number(mc.metaUF||0) : null};
   }).filter(f=>f.s.numProyectos>0);
-  const filasDesglose = filasUnidad.concat(filasLinea).map(f=>
-    '<tr><td>'+f.icon+' <b>'+f.nombre+'</b></td>'
-    + '<td class="mono" style="text-align:right">'+f.s.numProyectos+'</td>'
-    + '<td class="mono" style="text-align:right">'+fmtUF(f.s.venta)+'</td>'
-    + '<td class="mono" style="text-align:right">'+fmtUF(f.s.promedioPorProyecto)+'</td>'
-    + '<td class="mono" style="text-align:right">'+fmtUF(f.s.facturado)+'</td>'
-    + '<td class="mono" style="text-align:right; color:'+pctBadgeColor(f.s.margenPromedioPct)+'; font-weight:700">'+(f.s.margenPromedioPct==null?'—':f.s.margenPromedioPct.toFixed(0)+'%')+'</td>'
-    + '</tr>'
-  ).join('');
+  const filasDesglose = filasUnidad.concat(filasLinea).map(f=>{
+    const avance = (f.metaUF!=null && f.metaUF>0) ? (f.s.facturado/f.metaUF*100) : null;
+    return '<tr><td>'+f.icon+' <b>'+f.nombre+'</b></td>'
+      + '<td class="mono" style="text-align:right">'+f.s.numProyectos+'</td>'
+      + '<td class="mono" style="text-align:right">'+(f.metaUF!=null ? fmtCLP(f.metaUF) : '<span class="muted">Sin meta</span>')+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtCLP(f.s.venta)+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+(avance==null?'var(--muted)':pctBadgeColor(avance))+'; font-weight:700">'+(avance==null?'—':avance.toFixed(0)+'%')+'</td>'
+      + '</tr>';
+  }).join('');
 
   return '<div class="card" style="margin-bottom:20px">'
     + '<div class="card-title" style="font-size:15px; font-weight:700; margin-bottom:4px">💰 Análisis Financiero General</div>'
     + '<div class="card-sub" style="font-size:12.5px; margin-bottom:14px">🟢 '+sanos+' sano(s) · 🟡 '+enRiesgo+' en riesgo · 🔴 '+criticos+' crítico(s) — clasificación según margen proyectado al cierre de cada proyecto</div>'
 
-    + '<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:16px">'
-    + kpiBlock('Venta contratada (total)', 'Suma del monto vendido/contratado de todos los proyectos activos que tienen un monto de venta definido.', fmtUF(venta))
-    + kpiBlock('Facturado a la fecha / esperado', 'Lo ya facturado (hitos marcados como "Facturado") comparado con el total que falta por facturar según lo vendido.', fmtUF(facturadoUF)+' <span class="muted" style="font-size:14px">/ '+fmtUF(pendienteUF)+'</span>')
-    + (verCosto ? kpiBlock('Costo devengado a la fecha / estimado por terminar', 'El costo devengado es lo que ya costó el trabajo hecho (horas + costos adicionales incurridos). El estimado por terminar es lo que costará terminar según lo proyectado.', fmtUF(costoDevengado)+' <span class="muted" style="font-size:14px">/ '+fmtUF(costoPorTerminar)+'</span>') : '')
-    + '</div>'
-
-    + '<div style="max-width:640px; margin-bottom:20px">'
-    + metricLabel('Avance de facturación (facturado / venta contratada)', 'Qué porcentaje de lo vendido ya se ha facturado efectivamente, independiente de cuánto esfuerzo se ha ejecutado.')
-    + '<div style="margin-top:6px">'+gauge(venta, facturadoUF, v=>fmtUF(v), 'venta')+'</div>'
-    + '</div>'
-
-    + '<div class="section-label" style="margin-top:0">Márgenes consolidados del portafolio</div>'
-    + '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px">'
-    + margenCard('Margen devengado', '% sobre el esfuerzo ya valorizado — ¿el trabajo hecho hasta hoy en todo el portafolio rinde plata?', {pct:margenDevengadoPct, monto: ingresoDevengado>0 ? (ingresoDevengado-costoDevengado) : null})
-    + margenCard('Margen proyectado al cierre', '% sobre la venta total — si todos los proyectos siguen como van, ¿cómo termina el portafolio?', {pct:margenProyectadoPct, monto: venta>0 ? (venta-costoEstimadoTotal) : null})
-    + margenCard('Margen comercial de cierre', ventaCerrados>0 ? '% sobre la venta de los proyectos ya cerrados — resultado final consolidado de esos proyectos' : 'Aún no hay proyectos cerrados en la cartera', {pct:margenComercialPct, monto: ventaCerrados>0 ? (ventaCerrados-costoDevengadoCerrados) : null})
+    + '<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:8px">'
+    + kpiBlock('Meta de facturación '+year, 'Suma de las metas anuales configuradas por Unidad de Negocio (Configuración → Metas de Facturación) para '+year+'.', hayMetaPortafolio ? fmtCLP(metaPortafolioUF) : '<span class="muted" style="font-size:15px">Sin meta configurada</span>')
+    + kpiBlock('Facturado a la fecha / meta', 'Lo ya facturado este año (hitos marcados como "Facturado") comparado con la meta de facturación del portafolio.', fmtCLP(facturadoUF) + (hayMetaPortafolio ? ' <span class="muted" style="font-size:14px">/ '+fmtCLP(metaPortafolioUF)+'</span>' : ''), avanceMetaPct!=null ? ('Avance: '+avanceMetaPct.toFixed(0)+'% de la meta') : null)
+    + kpiBlock('Cantidad de proyectos', 'Proyectos activos con un monto de venta definido.', String(numProyectos))
+    + kpiBlock('Monto promedio de proyectos', 'Venta total del portafolio dividida por la cantidad de proyectos — el tamaño típico de un proyecto.', fmtCLP(promedioPorProyectoUF))
     + '</div>'
 
     + (filasDesglose ? (
@@ -3130,20 +3213,20 @@ function renderAnalisisFinancieroGeneral(){
       + '<div style="overflow-x:auto"><table><thead><tr>'
       + '<th>Ámbito</th>'
       + '<th class="num" title="Cantidad de proyectos con venta definida en este ámbito">Nº Proyectos</th>'
-      + '<th class="num" title="Suma del monto vendido de todos sus proyectos">Venta total</th>'
-      + '<th class="num" title="Venta total dividida por el número de proyectos — el tamaño típico de un proyecto en este ámbito">Valor prom./proyecto</th>'
-      + '<th class="num" title="Monto ya facturado este año en este ámbito">Facturado '+year+'</th>'
-      + '<th class="num" title="Promedio ponderado del margen proyectado al cierre de sus proyectos">Margen prom.</th>'
+      + '<th class="num" title="Meta de facturación configurada para este ámbito en '+year+'">Meta Facturación</th>'
+      + '<th class="num" title="Suma del monto vendido/adjudicado de todos sus proyectos">Total adjudicado</th>'
+      + '<th class="num" title="Facturado '+year+' dividido por la meta de este ámbito">% Avance Meta</th>'
       + '</tr></thead><tbody>'+filasDesglose+'</tbody></table></div>'
     ) : '')
 
     + '<div class="section-label">🚦 Rentabilidad por Proyecto (peor margen proyectado primero)</div>'
     + '<div style="overflow-x:auto"><table><thead><tr>'
     + '<th>Proyecto</th>'
-    + '<th class="num">Venta</th>'
-    + '<th class="num" title="% sobre el esfuerzo ya valorizado — rendimiento de lo ejecutado hasta hoy">Margen devengado</th>'
+    + '<th class="num" title="Monto de venta/adjudicación del proyecto">Monto adjudicación</th>'
     + '<th class="num" title="% sobre la venta total si el proyecto sigue como va">Margen proyectado</th>'
-    + '<th class="num" title="Diferencia entre % de esfuerzo ya ejecutado y % ya facturado — un descalce grande significa trabajo hecho que aún no se cobra">Descalce</th>'
+    + '<th class="num" title="% sobre el esfuerzo ya valorizado — rendimiento real de lo ejecutado hasta hoy">Margen real</th>'
+    + '<th class="num">HH Proyectadas</th>'
+    + '<th class="num">HH Reales</th>'
     + '</tr></thead><tbody>'+rankingRows+'</tbody></table></div>'
     + '</div>';
 }
@@ -3165,7 +3248,7 @@ function renderDashVencimientosFacturacion(){
   hitos.sort((a,b)=> (a.h.fecha||'9999').localeCompare(b.h.fecha||'9999'));
 
   const rows = hitos.slice(0,8).map(({p,h,vencido})=>{
-    const monto = p.montoVenta ? fmtUF(p.montoVenta*Number(h.pctVenta||0)/100) : '—';
+    const monto = p.montoVenta ? fmtCLP(p.montoVenta*Number(h.pctVenta||0)/100) : '—';
     return '<tr class="expand-toggle" onclick="openProjectDetail(\''+p.id+'\')">'
       + '<td><b>'+p.name+'</b></td>'
       + '<td>'+h.nombre+'</td>'
@@ -3206,17 +3289,17 @@ function renderMetasFacturacion(){
       + '<div class="card-header"><div><div class="card-title">'+icon+' '+meta.nombre+' — Meta '+meta.periodo+'</div>'
       + '<div class="card-sub">'+stats.numProyectos+' proyecto(s) con venta · '+stats.numPersonas+' persona(s) en el equipo</div></div>'
       + '<button class="btn btn-ghost btn-sm" onclick="deleteMetaFacturacionByRef(\''+meta.tipo+'\',\''+meta.nombre.replace(/'/g,"\\'")+'\',\''+meta.periodo+'\')">Eliminar meta</button></div>'
-      + '<div style="max-width:560px; margin-bottom:14px">'+gauge(meta.metaUF, stats.facturado, v=>fmtUF(v), 'meta')+'</div>'
+      + '<div style="max-width:560px; margin-bottom:14px">'+gauge(meta.metaUF, stats.facturado, v=>fmtCLP(v), 'meta')+'</div>'
       + '<div style="display:flex; gap:24px; flex-wrap:wrap">'
-      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Facturado / Meta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(stats.facturado)+' / '+fmtUF(meta.metaUF)+'</div></div>'
-      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Falta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(falta)+'</div></div>'
-      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Desviación vs. ritmo esperado ('+(fraccion*100).toFixed(0)+'% del año)</div><div class="mono" style="font-size:17px; font-weight:700; color:'+desviacionColor+'">'+(desviacion>=0?'+':'')+fmtUF(desviacion)+'</div></div>'
-      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Promedio por proyecto</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtUF(stats.promedioPorProyecto)+'</div></div>'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Facturado / Meta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtCLP(stats.facturado)+' / '+fmtCLP(meta.metaUF)+'</div></div>'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Falta</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtCLP(falta)+'</div></div>'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Desviación vs. ritmo esperado ('+(fraccion*100).toFixed(0)+'% del año)</div><div class="mono" style="font-size:17px; font-weight:700; color:'+desviacionColor+'">'+(desviacion>=0?'+':'')+fmtCLP(desviacion)+'</div></div>'
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Promedio por proyecto</div><div class="mono" style="font-size:17px; font-weight:700">'+fmtCLP(stats.promedioPorProyecto)+'</div></div>'
       + '</div>'
       + '<div class="section-label">👤 Referencial por persona <span class="muted" style="font-weight:400; text-transform:none; font-size:11.5px">(meta ÷ dotación — no es una cuota individual justa, distintos roles facturan distinto)</span></div>'
       + '<div style="display:flex; gap:24px; flex-wrap:wrap">'
-      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Meta de facturación / persona</div><div class="mono" style="font-size:17px; font-weight:700">'+(metaPorPersona!=null?fmtUF(metaPorPersona):'—')+'</div></div>'
-      + (verCosto ? '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen estimado / persona</div><div class="mono" style="font-size:17px; font-weight:700">'+(margenEstimadoPorPersona!=null?fmtUF(margenEstimadoPorPersona):'—')+'</div></div>' : '')
+      + '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Meta de facturación / persona</div><div class="mono" style="font-size:17px; font-weight:700">'+(metaPorPersona!=null?fmtCLP(metaPorPersona):'—')+'</div></div>'
+      + (verCosto ? '<div><div class="muted" style="font-size:11px; text-transform:uppercase">Margen estimado / persona</div><div class="mono" style="font-size:17px; font-weight:700">'+(margenEstimadoPorPersona!=null?fmtCLP(margenEstimadoPorPersona):'—')+'</div></div>' : '')
       + '</div>'
       + '</div>';
   }).join('');
@@ -3584,8 +3667,8 @@ function renderFinanzasProyecto(p){
     html += '<div class="muted" style="font-size:13px; margin-bottom:10px">Sin monto de venta definido — edita el proyecto para ingresarlo y habilitar el cálculo de márgenes.</div>';
   } else {
     html += '<div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px; margin-bottom:12px">'
-      + '<span class="chip">Venta contratada: <b>'+fmtUF(m.venta)+'</b></span>'
-      + (verCosto ? '<span class="chip">Costo devengado: <b>'+fmtUF(m.costoDevengado)+'</b></span><span class="chip">Costo por terminar: <b>'+fmtUF(m.costoPorTerminar)+'</b></span>' : '<span class="chip muted">🔒 Costo empresa oculto para el rol "'+state.viewAsRole+'"</span>')
+      + '<span class="chip">Venta contratada: <b>'+fmtCLP(m.venta)+'</b></span>'
+      + (verCosto ? '<span class="chip">Costo devengado: <b>'+fmtCLP(m.costoDevengado)+'</b></span><span class="chip">Costo por terminar: <b>'+fmtCLP(m.costoPorTerminar)+'</b></span>' : '<span class="chip muted">🔒 Costo empresa oculto para el rol "'+state.viewAsRole+'"</span>')
       + '</div>'
       + '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px">'
       + margenCard('Margen devengado', '% sobre el esfuerzo ya valorizado — ¿el trabajo hecho hasta hoy rinde plata?', m.devengado)
@@ -3607,7 +3690,7 @@ function renderFinanzasProyecto(p){
     return '<tr>'
       + '<td>'+h.nombre+'</td>'
       + '<td class="mono" style="text-align:right">'+Number(h.pctVenta||0)+'%</td>'
-      + '<td class="mono" style="text-align:right">'+(p.montoVenta ? fmtUF(p.montoVenta*Number(h.pctVenta||0)/100) : '—')+'</td>'
+      + '<td class="mono" style="text-align:right">'+(p.montoVenta ? fmtCLP(p.montoVenta*Number(h.pctVenta||0)/100) : '—')+'</td>'
       + '<td>'+(h.fecha||'—')+'</td>'
       + '<td><span class="badge '+(h.estado==='facturado'?'activo':(vencido?'pausa':'cerrado'))+'">'+(h.estado==='facturado'?'Facturado':(vencido?'Vencido':'Pendiente'))+'</span></td>'
       + '<td style="text-align:right">'
@@ -3630,12 +3713,12 @@ function renderFinanzasProyecto(p){
     const costos = p.costosAdicionales || [];
     const costoRows = costos.map(c=>{
       const monto = costoAdicionalMonto(c);
-      const modalidadLabel = c.modalidad==='tarifa_hora' ? fmtUF(c.tarifaUFHora)+'/h × '+fmtH(c.horas)+'h' : 'Monto fijo';
+      const modalidadLabel = c.modalidad==='tarifa_hora' ? fmtCLP(c.tarifaUFHora)+'/h × '+fmtH(c.horas)+'h' : 'Monto fijo';
       return '<tr>'
         + '<td>'+c.concepto+'</td>'
         + '<td>'+({material:'Material', consultor_externo:'Consultor externo', otro:'Otro'}[c.categoria]||'Otro')+'</td>'
         + '<td class="muted" style="font-size:12px">'+modalidadLabel+'</td>'
-        + '<td class="mono" style="text-align:right">'+fmtUF(monto)+'</td>'
+        + '<td class="mono" style="text-align:right">'+fmtCLP(monto)+'</td>'
         + '<td><span class="badge '+(c.estado==='incurrido'?'activo':'iniciar')+'">'+(c.estado==='incurrido'?'Incurrido':'Estimado')+'</span></td>'
         + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteCostoAdicional(\''+p.id+'\',\''+c.id+'\')">Eliminar</button></td>'
         + '</tr>';
@@ -3687,9 +3770,13 @@ function openCostoAdicionalModal(projectId){
     + '<div class="field"><label>Categoría</label><select id="f_costo_categoria"><option value="consultor_externo">Consultor externo</option><option value="material">Material</option><option value="otro">Otro</option></select></div>'
     + '<div class="field"><label>Estado</label><select id="f_costo_estado"><option value="incurrido">Incurrido (ya se gastó)</option><option value="estimado">Estimado (falta por gastar)</option></select></div>'
     + '<div class="field"><label>Modalidad</label><select id="f_costo_modalidad" onchange="document.getElementById(\'f_costo_fijo_wrap\').style.display=this.value===\'monto_fijo\'?\'\':\'none\'; document.getElementById(\'f_costo_hora_wrap\').style.display=this.value===\'tarifa_hora\'?\'\':\'none\';"><option value="monto_fijo">Monto fijo / contrato</option><option value="tarifa_hora">Tarifa por hora</option></select></div>'
-    + '<div class="field" id="f_costo_fijo_wrap"><label>Monto (UF)</label><input id="f_costo_monto" type="number" min="0" step="0.1" value="0"></div>'
-    + '<div class="field" id="f_costo_hora_wrap" style="display:none"><label>Tarifa (UF/hora)</label><input id="f_costo_tarifa" type="number" min="0" step="0.1" value="0"></div>'
-    + '<div class="field" id="f_costo_horas_wrap" style="display:none"><label>Horas estimadas</label><input id="f_costo_horas" type="number" min="0" step="1" value="0"></div>'
+    + '</div>'
+    + '<div class="form-grid" id="f_costo_fijo_wrap" style="margin-top:12px">'
+    + renderUfClpField('f_costo_monto_uf', 'f_costo_monto_clp', 'Monto', '')
+    + '</div>'
+    + '<div id="f_costo_hora_wrap" style="display:none; margin-top:12px">'
+    + '<div class="form-grid">' + renderUfClpField('f_costo_tarifa_uf', 'f_costo_tarifa_clp', 'Tarifa por hora', '') + '</div>'
+    + '<div class="form-grid" id="f_costo_horas_wrap" style="display:none; margin-top:12px"><div class="field"><label>Horas estimadas</label><input id="f_costo_horas" type="number" min="0" step="1" value="0"></div></div>'
     + '</div>'
     + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveCostoAdicional(\''+projectId+'\')">Guardar</button></div>';
   openModal();
@@ -3706,10 +3793,10 @@ function saveCostoAdicional(projectId){
   if(!concepto){ showToast('Ingresa un concepto.'); return; }
   const entry = {id:uid('costo'), concepto, categoria, estado, modalidad};
   if(modalidad==='tarifa_hora'){
-    entry.tarifaUFHora = Number(document.getElementById('f_costo_tarifa').value)||0;
+    entry.tarifaUFHora = Number(document.getElementById('f_costo_tarifa_clp').value)||0;
     entry.horas = Number(document.getElementById('f_costo_horas').value)||0;
   } else {
-    entry.montoUF = Number(document.getElementById('f_costo_monto').value)||0;
+    entry.montoUF = Number(document.getElementById('f_costo_monto_clp').value)||0;
   }
   if(!p.costosAdicionales) p.costosAdicionales=[];
   p.costosAdicionales.push(entry);
@@ -3878,7 +3965,9 @@ function openProjectModal(projectId){
     + '<div class="field"><label>Estado</label><select id="f_status">'+statusOptions+'</select></div>'
     + '<div class="field"><label>Fecha inicio</label><input id="f_start" type="date" value="'+fInicio+'"></div>'
     + '<div class="field"><label>Fecha cierre</label><input id="f_end" type="date" value="'+fCierre+'"></div>'
-    + '<div class="field"><label>Monto de venta contratado (UF, neto sin IVA)</label><input id="f_montoventa" type="number" min="0" step="0.1" value="'+(p?(p.montoVenta||''):'')+'" placeholder="Ej: 450"></div>'
+    + '</div>'
+    + '<div class="form-grid" style="margin-top:12px">'
+    + renderUfClpField('f_montoventa_uf', 'f_montoventa_clp', 'Monto de venta contratado (neto sin IVA)', p?p.montoVenta:'')
     + '</div>'
     + '<p class="muted" style="font-size:12px; margin-top:8px">Asocia el registro a una Línea de Negocio y define si es Proyecto o Administración para el seguimiento de HH. El monto de venta se usa para calcular la tarifa efectiva y los márgenes del proyecto (solo aplica a Proyectos cliente).</p>'
     + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveProject('+(p?"'"+p.id+"'":'null')+')">Guardar</button></div>';
@@ -3896,7 +3985,7 @@ function saveProject(projectId){
   const fechaCierre = document.getElementById('f_end').value;
   const startMonth = fechaInicio ? fechaInicio.slice(0,7) : '';
   const endMonth = fechaCierre ? fechaCierre.slice(0,7) : '';
-  const montoVenta = Number(document.getElementById('f_montoventa').value) || 0;
+  const montoVenta = Number(document.getElementById('f_montoventa_clp').value) || 0;
   if(!name){ showToast('Ingresa un nombre.'); return; }
   if(fechaInicio && fechaCierre && fechaInicio>fechaCierre){ showToast('La fecha de inicio debe ser anterior o igual a la de cierre.'); return; }
   if(projectId){
@@ -4773,17 +4862,17 @@ function renderFinanceConfigCard(){
   const verCosto = canSeeCostoEmpresa();
 
   const tarifaRows = (cfg.tarifasPorRol||[]).map((t,i)=>
-    '<tr><td>'+t.rol+'</td><td class="mono" style="text-align:right">'+fmtUF(t.valorUF)+'/h</td><td>'+(t.vigenciaDesde||'—')+'</td>'
+    '<tr><td>'+t.rol+'</td><td class="mono" style="text-align:right">'+fmtCLP(t.valorUF)+'/h</td><td>'+(t.vigenciaDesde||'—')+'</td>'
     + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteTarifaRol('+i+')">Eliminar</button></td></tr>'
   ).join('');
 
   const costoRows = (cfg.costoEmpresaPorRol||[]).map((t,i)=>
-    '<tr><td>'+t.rol+'</td><td class="mono" style="text-align:right">'+fmtUF(t.valorUF)+'/h</td><td>'+(t.vigenciaDesde||'—')+'</td>'
+    '<tr><td>'+t.rol+'</td><td class="mono" style="text-align:right">'+fmtCLP(t.valorUF)+'/h</td><td>'+(t.vigenciaDesde||'—')+'</td>'
     + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteCostoRol('+i+')">Eliminar</button></td></tr>'
   ).join('');
 
   let html = '<div class="card">'
-    + '<div class="card-header"><div><div class="card-title">💰 Tarifas y Costos (UF)</div><div class="card-sub">Gobierna el cálculo de tarifa efectiva y márgenes. Un cambio de tarifa rige desde su fecha de vigencia y no reescribe meses ya calculados.</div></div></div>'
+    + '<div class="card-header"><div><div class="card-title">💰 Tarifas y Costos (CLP)</div><div class="card-sub">Gobierna el cálculo de tarifa efectiva y márgenes. Un cambio de tarifa rige desde su fecha de vigencia y no reescribe meses ya calculados.</div></div></div>'
     + '<div class="form-grid" style="max-width:320px; margin-bottom:6px">'
     + '<div class="field"><label>Valor UF de referencia (CLP)</label><input id="cfg_valorUF" type="number" min="0" step="0.01" value="'+(cfg.valorUF||0)+'" onchange="saveValorUF(this.value)"></div>'
     + '</div>'
@@ -4820,15 +4909,17 @@ function openTarifaModal(kind){
   document.getElementById('modalBody').innerHTML = '<h3>'+(isTarifa?'Nueva tarifa de venta':'Nuevo costo empresa')+' por rol</h3>'
     + '<div class="form-grid">'
     + '<div class="field" style="grid-column:1/-1"><label>Rol / Cargo</label><input id="f_tarifa_rol" list="rolesDatalistTarifa" placeholder="Ej: Consultor Senior"><datalist id="rolesDatalistTarifa">'+roleOpts+'</datalist></div>'
-    + '<div class="field"><label>Valor (UF por hora)</label><input id="f_tarifa_valor" type="number" min="0" step="0.01" value="0"></div>'
     + '<div class="field"><label>Vigencia desde (mes)</label><input id="f_tarifa_vigencia" type="month" value="'+currentMonth()+'"></div>'
+    + '</div>'
+    + '<div class="form-grid" style="margin-top:12px">'
+    + renderUfClpField('f_tarifa_valor_uf', 'f_tarifa_valor_clp', 'Valor por hora', '')
     + '</div>'
     + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveTarifaRol(\''+kind+'\')">Guardar</button></div>';
   openModal();
 }
 function saveTarifaRol(kind){
   const rol = document.getElementById('f_tarifa_rol').value.trim();
-  const valorUF = Number(document.getElementById('f_tarifa_valor').value)||0;
+  const valorUF = Number(document.getElementById('f_tarifa_valor_clp').value)||0;
   const vigenciaDesde = document.getElementById('f_tarifa_vigencia').value;
   if(!rol){ showToast('Ingresa o selecciona un rol.'); return; }
   const key = kind==='tarifa' ? 'tarifasPorRol' : 'costoEmpresaPorRol';
@@ -4848,13 +4939,13 @@ function deleteCostoRol(idx){
 function renderMetasConfigCard(){
   const metas = state.config.metasFacturacion||[];
   const rows = metas.map((m,i)=>
-    '<tr><td>'+(m.tipo==='unidad'?'🏢':'🏷️')+' '+m.nombre+'</td><td>'+m.periodo+'</td><td class="mono" style="text-align:right">'+fmtUF(m.metaUF)+'</td>'
+    '<tr><td>'+(m.tipo==='unidad'?'🏢':'🏷️')+' '+m.nombre+'</td><td>'+m.periodo+'</td><td class="mono" style="text-align:right">'+fmtCLP(m.metaUF)+'</td>'
     + '<td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="deleteMetaFacturacion('+i+')">Eliminar</button></td></tr>'
   ).join('');
   return '<div class="card">'
     + '<div class="card-header"><div><div class="card-title">🎯 Metas de Facturación</div><div class="card-sub">Meta anual por Unidad o Línea de Negocio, para ver avance, desviación y cuánto le corresponde a cada persona (referencial).</div></div>'
     + '<button class="btn btn-secondary btn-sm" onclick="openMetaFacturacionModal()">+ Agregar meta</button></div>'
-    + (metas.length ? '<table><thead><tr><th>Unidad / Línea</th><th>Período</th><th class="num">Meta (UF)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin metas configuradas todavía.</p>')
+    + (metas.length ? '<table><thead><tr><th>Unidad / Línea</th><th>Período</th><th class="num">Meta</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin metas configuradas todavía.</p>')
     + '</div>';
 }
 function openMetaFacturacionModal(){
@@ -4866,7 +4957,9 @@ function openMetaFacturacionModal(){
     + '<div class="field"><label>Período (año)</label><input id="f_meta_periodo" value="'+currentMonth().slice(0,4)+'" placeholder="2026"></div>'
     + '<div class="field" id="f_meta_unidad_wrap"><label>Unidad</label><select id="f_meta_unidad"><option value="">Selecciona...</option>'+unidadOpts+'</select></div>'
     + '<div class="field" id="f_meta_linea_wrap" style="display:none"><label>Línea</label><select id="f_meta_linea"><option value="">Selecciona...</option>'+lineaOpts+'</select></div>'
-    + '<div class="field"><label>Meta anual (UF)</label><input id="f_meta_valor" type="number" min="0" step="1" value="0"></div>'
+    + '</div>'
+    + '<div class="form-grid" style="margin-top:12px">'
+    + renderUfClpField('f_meta_valor_uf', 'f_meta_valor_clp', 'Meta anual de facturación', '')
     + '</div>'
     + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveMetaFacturacion()">Guardar</button></div>';
   openModal();
@@ -4875,7 +4968,7 @@ function saveMetaFacturacion(){
   const tipo = document.getElementById('f_meta_tipo').value;
   const periodo = document.getElementById('f_meta_periodo').value.trim();
   const nombre = tipo==='unidad' ? document.getElementById('f_meta_unidad').value : document.getElementById('f_meta_linea').value;
-  const metaUF = Number(document.getElementById('f_meta_valor').value)||0;
+  const metaUF = Number(document.getElementById('f_meta_valor_clp').value)||0;
   if(!nombre || !periodo){ showToast('Selecciona un ámbito y un período.'); return; }
   if(!state.config.metasFacturacion) state.config.metasFacturacion=[];
   state.config.metasFacturacion.push({tipo, nombre, periodo, metaUF});
