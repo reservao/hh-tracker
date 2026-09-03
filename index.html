@@ -3188,12 +3188,17 @@ function renderAnalisisFinancieroGeneral(){
     return {icon:'🏷️', nombre:l, s, metaUF: mc ? Number(mc.metaUF||0) : null};
   }).filter(f=>f.s.numProyectos>0);
   const filasDesglose = filasUnidad.concat(filasLinea).map(f=>{
-    const avance = (f.metaUF!=null && f.metaUF>0) ? (f.s.facturado/f.metaUF*100) : null;
+    // % Avance Meta = lo adjudicado/vendido sobre la meta anual (avance comercial).
+    // % Facturación = de lo adjudicado, cuánto ya se ha facturado (avance de cobro) — son dos preguntas distintas.
+    const avanceMeta = (f.metaUF!=null && f.metaUF>0) ? (f.s.venta/f.metaUF*100) : null;
+    const pctFacturacion = f.s.venta>0 ? (f.s.facturado/f.s.venta*100) : null;
     return '<tr><td>'+f.icon+' <b>'+f.nombre+'</b></td>'
       + '<td class="mono" style="text-align:right">'+f.s.numProyectos+'</td>'
       + '<td class="mono" style="text-align:right">'+(f.metaUF!=null ? fmtCLP(f.metaUF) : '<span class="muted">Sin meta</span>')+'</td>'
       + '<td class="mono" style="text-align:right">'+fmtCLP(f.s.venta)+'</td>'
-      + '<td class="mono" style="text-align:right; color:'+(avance==null?'var(--muted)':pctBadgeColor(avance))+'; font-weight:700">'+(avance==null?'—':avance.toFixed(0)+'%')+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+(avanceMeta==null?'var(--muted)':pctBadgeColor(avanceMeta))+'; font-weight:700">'+(avanceMeta==null?'—':avanceMeta.toFixed(0)+'%')+'</td>'
+      + '<td class="mono" style="text-align:right">'+fmtCLP(f.s.facturado)+'</td>'
+      + '<td class="mono" style="text-align:right; color:'+(pctFacturacion==null?'var(--muted)':pctBadgeColor(pctFacturacion))+'; font-weight:700">'+(pctFacturacion==null?'—':pctFacturacion.toFixed(0)+'%')+'</td>'
       + '</tr>';
   }).join('');
 
@@ -3215,7 +3220,9 @@ function renderAnalisisFinancieroGeneral(){
       + '<th class="num" title="Cantidad de proyectos con venta definida en este ámbito">Nº Proyectos</th>'
       + '<th class="num" title="Meta de facturación configurada para este ámbito en '+year+'">Meta Facturación</th>'
       + '<th class="num" title="Suma del monto vendido/adjudicado de todos sus proyectos">Total adjudicado</th>'
-      + '<th class="num" title="Facturado '+year+' dividido por la meta de este ámbito">% Avance Meta</th>'
+      + '<th class="num" title="Total adjudicado dividido por la meta de este ámbito — cuánto se ha vendido respecto a la meta anual">% Avance Meta</th>'
+      + '<th class="num" title="Monto ya facturado este '+year+' en este ámbito">Facturado</th>'
+      + '<th class="num" title="Facturado dividido por el total adjudicado — de lo vendido, cuánto ya se ha cobrado">% Facturación</th>'
       + '</tr></thead><tbody>'+filasDesglose+'</tbody></table></div>'
     ) : '')
 
