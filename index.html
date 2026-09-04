@@ -337,7 +337,7 @@ function parseMonthLabel(label){ // 'marzo 2026' / 'MarzO   2026' / 'Marzo, 2026
 }
 
 // ---------- Storage (Firebase Firestore) ----------
-function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, valorUFFecha:null, tarifasPorRol:[], costoEmpresaPorRol:[], metasFacturacion:[], currencyMigratedToCLP:true}; }
+function defaultConfig(){ return {unidades:[], lineasNegocio:[], targetProjectPct:80, targetAdminPct:20, monthlyCapacity:180, valorUF:40873.77, valorUFFecha:null, tarifasPorRol:[], costoEmpresaPorRol:[], metasFacturacion:[], currencyMigratedToCLP:true, resumenEconomico:{pesoNoEfectivoPct:30, snapshots:[]}}; }
 function migrateConfigShape(){
   if(!state.config.unidades) state.config.unidades=[];
   if(!state.config.lineasNegocio) state.config.lineasNegocio=[];
@@ -350,6 +350,9 @@ function migrateConfigShape(){
   if(!state.config.tarifasPorRol){ state.config.tarifasPorRol = []; changed = true; }
   if(!state.config.costoEmpresaPorRol){ state.config.costoEmpresaPorRol = []; changed = true; }
   if(!state.config.metasFacturacion){ state.config.metasFacturacion = []; changed = true; }
+  if(!state.config.resumenEconomico){ state.config.resumenEconomico = {pesoNoEfectivoPct:30, snapshots:[]}; changed = true; }
+  if(!state.config.resumenEconomico.snapshots){ state.config.resumenEconomico.snapshots = []; changed = true; }
+  if(state.config.resumenEconomico.pesoNoEfectivoPct==null){ state.config.resumenEconomico.pesoNoEfectivoPct = 30; changed = true; }
   return changed;
 }
 // Todos los montos de la app se muestran y calculan en CLP (nunca UF): un monto
@@ -3115,6 +3118,379 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ---------- Resumen Económico (reporte mensual para gerencia) ----------
+// Cifras de negocio (presupuesto, adjudicado, pipe comercial, cierre real del mes)
+// que hoy la gerencia arma a mano cada corte de mes en una planilla aparte — no se
+// derivan de los proyectos/HH cargados en la app, así que se ingresan manualmente
+// por línea de negocio (+ una fila fija de "Gerencia" para el gasto de estructura,
+// que no tiene proyectos ni pipe propio). La app solo calcula los % y totales.
+function fmtMM(n){ return new Intl.NumberFormat('es-CL',{maximumFractionDigits:0}).format(Math.round(n||0)); }
+function mesNombreCorto(periodo){ const idx = parseInt((periodo||'').split('-')[1],10)-1; return MONTHS_ES_FULL[idx] || ''; }
+function resumenEcoNum(v){ return Number(v||0); }
+
+function resumenEcoCatalogo(){
+  const filas = (state.config.lineasNegocio||[]).map(l=>({linea:l.nombre, unidad:l.unidad||'Sin unidad', esGerencia:false}));
+  filas.push({linea:'Gerencia', unidad:'Gerencia', esGerencia:true});
+  return filas;
+}
+function resumenEcoBlankFila(cat){
+  return {linea:cat.linea, esGerencia:cat.esGerencia,
+    pptoFechaIng:0, pptoFechaHH:0, pptoFechaGasto:0, cierreIng:0, cierreHH:0, cierreGasto:0,
+    pptoAnualIng:0, pptoAnualHH:0, pptoAnualGasto:0, sensHH:0, sensGasto:0, sensIngManual:0,
+    adjudicado:0, pipeEfectivo:0, pipeNoEfectivoBruto:0};
+}
+function resumenEcoGetSnapshot(periodo){
+  return ((state.config.resumenEconomico||{}).snapshots||[]).find(s=>s.periodo===periodo) || null;
+}
+function resumenEcoSnapshotAnterior(periodo){
+  const snaps = ((state.config.resumenEconomico||{}).snapshots||[]).filter(s=>s.periodo<periodo).sort((a,b)=>b.periodo.localeCompare(a.periodo));
+  return snaps[0] || null;
+}
+// Filas en orden de catálogo (líneas configuradas + Gerencia), rellenando con ceros
+// lo que falte — así una línea nueva o un mes recién creado siempre se ven completos.
+function resumenEcoFilasParaMostrar(snapshot){
+  const cat = resumenEcoCatalogo();
+  return cat.map(c=>{
+    const existente = snapshot ? (snapshot.filas||[]).find(f=>f.linea===c.linea) : null;
+    return Object.assign({}, resumenEcoBlankFila(c), existente||{}, {unidad:c.unidad, esGerencia:c.esGerencia});
+  });
+}
+function resumenEcoPeriodoActual(){
+  if(state.uiResumenEconomicoPeriodo) return state.uiResumenEconomicoPeriodo;
+  const snaps = ((state.config.resumenEconomico||{}).snapshots||[]).slice().sort((a,b)=>a.periodo.localeCompare(b.periodo));
+  return snaps.length ? snaps[snaps.length-1].periodo : currentMonth();
+}
+function resumenEcoSetPeriodo(p){ state.uiResumenEconomicoPeriodo = p; renderAll(); }
+
+// Deriva, para una fila (línea o Gerencia), las tres lecturas: cierre real vs.
+// presupuesto a la fecha (mes en curso), presupuesto anual vs. sensibilidad al
+// cierre del año, y el detalle comercial (adjudicado/pipe). El ingreso de
+// "sensibilidad" de una línea normal no se pide aparte: es lo que ya se adjudicó
+// más el pipe efectivo (mismo criterio que la tabla comercial); Gerencia no tiene
+// adjudicado/pipe, así que su ingreso de sensibilidad se ingresa directo.
+function resumenEcoRowCalc(f, peso){
+  const cierre = {ing:resumenEcoNum(f.cierreIng), hh:resumenEcoNum(f.cierreHH), gasto:resumenEcoNum(f.cierreGasto)};
+  cierre.mg = cierre.ing - cierre.hh - cierre.gasto;
+  const pFecha = {ing:resumenEcoNum(f.pptoFechaIng), hh:resumenEcoNum(f.pptoFechaHH), gasto:resumenEcoNum(f.pptoFechaGasto)};
+  pFecha.mg = pFecha.ing - pFecha.hh - pFecha.gasto;
+  const difFecha = {ing:cierre.ing-pFecha.ing, hh:cierre.hh-pFecha.hh, gasto:cierre.gasto-pFecha.gasto, mg:cierre.mg-pFecha.mg};
+
+  const pAnual = {ing:resumenEcoNum(f.pptoAnualIng), hh:resumenEcoNum(f.pptoAnualHH), gasto:resumenEcoNum(f.pptoAnualGasto)};
+  pAnual.mg = pAnual.ing - pAnual.hh - pAnual.gasto;
+  const sensIng = f.esGerencia ? resumenEcoNum(f.sensIngManual) : (resumenEcoNum(f.adjudicado)+resumenEcoNum(f.pipeEfectivo));
+  const sens = {ing:sensIng, hh:resumenEcoNum(f.sensHH), gasto:resumenEcoNum(f.sensGasto)};
+  sens.mg = sens.ing - sens.hh - sens.gasto;
+  const difAnual = {ing:sens.ing-pAnual.ing, hh:sens.hh-pAnual.hh, gasto:sens.gasto-pAnual.gasto, mg:sens.mg-pAnual.mg};
+
+  let comercial = null;
+  if(!f.esGerencia){
+    const ppto = pAnual.ing;
+    const adjudicado = resumenEcoNum(f.adjudicado);
+    const efectivo = resumenEcoNum(f.pipeEfectivo);
+    const noEfectivoBruto = resumenEcoNum(f.pipeNoEfectivoBruto);
+    const noEfectivo = noEfectivoBruto * (peso/100);
+    const adjMasPEfe = adjudicado+efectivo;
+    const pipeTotal = efectivo+noEfectivo;
+    comercial = {
+      ppto, adjudicado, efectivo, noEfectivoBruto, noEfectivo, adjMasPEfe, pipeTotal,
+      pctAdj: ppto>0 ? adjudicado/ppto*100 : null,
+      porVender: ppto>adjudicado ? ppto-adjudicado : null,
+      pctEfectivo: ppto>0 ? efectivo/ppto*100 : null,
+      pctAdjMasPEfe: ppto>0 ? adjMasPEfe/ppto*100 : null
+    };
+  }
+  return {cierre, pFecha, difFecha, pAnual, sens, difAnual, comercial};
+}
+function resumenEcoSumar4(calcs, campo){
+  return calcs.reduce((s,c)=>({ing:s.ing+c[campo].ing, hh:s.hh+c[campo].hh, gasto:s.gasto+c[campo].gasto, mg:s.mg+c[campo].mg}), {ing:0,hh:0,gasto:0,mg:0});
+}
+function resumenEcoTotales(calcs){
+  const comerciales = calcs.filter(c=>c.comercial).map(c=>c.comercial);
+  const sum = campo => comerciales.reduce((s,c)=>s+(c[campo]||0),0);
+  const ppto = sum('ppto'), adjudicado = sum('adjudicado'), efectivo = sum('efectivo');
+  const noEfectivoBruto = sum('noEfectivoBruto'), noEfectivo = sum('noEfectivo');
+  const adjMasPEfe = sum('adjMasPEfe'), pipeTotal = sum('pipeTotal'), porVender = sum('porVender');
+  return {
+    cierre: resumenEcoSumar4(calcs,'cierre'), pFecha: resumenEcoSumar4(calcs,'pFecha'), difFecha: resumenEcoSumar4(calcs,'difFecha'),
+    pAnual: resumenEcoSumar4(calcs,'pAnual'), sens: resumenEcoSumar4(calcs,'sens'), difAnual: resumenEcoSumar4(calcs,'difAnual'),
+    comercial: {
+      ppto, adjudicado, efectivo, noEfectivoBruto, noEfectivo, adjMasPEfe, pipeTotal, porVender,
+      pctAdj: ppto>0 ? adjudicado/ppto*100 : null,
+      pctEfectivo: ppto>0 ? efectivo/ppto*100 : null,
+      pctAdjMasPEfe: ppto>0 ? adjMasPEfe/ppto*100 : null
+    }
+  };
+}
+function resumenEcoAgrupar(calcs){
+  const orden = (state.config.unidades||[]).slice();
+  const grupos = orden.map(u=>({unidad:u, items:calcs.filter(x=>x.f.unidad===u)})).filter(g=>g.items.length);
+  const gerenciaItems = calcs.filter(x=>x.f.esGerencia);
+  if(gerenciaItems.length) grupos.push({unidad:'Gerencia', items:gerenciaItems});
+  const yaIncluidas = new Set(grupos.flatMap(g=>g.items.map(x=>x.f.linea)));
+  const sueltas = calcs.filter(x=>!yaIncluidas.has(x.f.linea));
+  if(sueltas.length) grupos.push({unidad:'Sin unidad', items:sueltas});
+  return grupos;
+}
+function resumenEcoCelda(v, bold){
+  const color = v<0 ? 'var(--red)' : 'inherit';
+  return '<td class="mono" style="text-align:right; color:'+color+(bold?'; font-weight:700':'')+'">'+fmtMM(v)+'</td>';
+}
+function resumenEcoTripleHead(titulos){
+  let head = '<tr><th rowspan="2" style="min-width:80px">Unidad</th><th rowspan="2" style="min-width:170px">Línea</th>';
+  titulos.forEach((t,i)=>{ head += '<th colspan="4" style="text-align:center;'+(i>0?' border-left:2px solid var(--border);':'')+'">'+t+'</th>'; });
+  head += '</tr><tr>';
+  titulos.forEach((t,i)=>{ head += '<th class="num"'+(i>0?' style="border-left:2px solid var(--border)"':'')+'>Ing</th><th class="num">HH</th><th class="num">Gasto</th><th class="num">Mg</th>'; });
+  head += '</tr>';
+  return head;
+}
+function resumenEcoTripleFilas(grupos, campos){
+  let html='';
+  grupos.forEach(g=>{
+    g.items.forEach((x,i)=>{
+      const c=x.c;
+      html += '<tr>'
+        + (i===0 ? '<td rowspan="'+g.items.length+'" style="font-weight:700; vertical-align:middle; background:var(--bg); font-size:12px">'+g.unidad+'</td>' : '')
+        + '<td>'+x.f.linea+'</td>';
+      campos.forEach(k=>{
+        const b=c[k];
+        html += resumenEcoCelda(b.ing)+resumenEcoCelda(b.hh)+resumenEcoCelda(b.gasto)+resumenEcoCelda(b.mg,true);
+      });
+      html += '</tr>';
+    });
+  });
+  return html;
+}
+function resumenEcoTripleTotal(t, campos){
+  let row = '<tr style="font-weight:700; background:var(--bg)"><td colspan="2">TOTAL</td>';
+  campos.forEach(k=>{ const b=t[k]; row += resumenEcoCelda(b.ing)+resumenEcoCelda(b.hh)+resumenEcoCelda(b.gasto)+resumenEcoCelda(b.mg,true); });
+  row += '</tr>';
+  return row;
+}
+
+// Tabla 1 (la más importante para gerencia, según fue pedida): resultado real
+// acumulado del mes en curso vs. el presupuesto a la fecha, por línea de negocio.
+function renderREMargenOperacional(periodo){
+  const snapshot = resumenEcoGetSnapshot(periodo);
+  const filas = resumenEcoFilasParaMostrar(snapshot);
+  const peso = (state.config.resumenEconomico||{}).pesoNoEfectivoPct||30;
+  const calcs = filas.map(f=>({f, c:resumenEcoRowCalc(f, peso)}));
+  const grupos = resumenEcoAgrupar(calcs);
+  const totales = resumenEcoTotales(calcs.map(x=>x.c));
+  const mesLabel = mesNombreCorto(periodo);
+
+  const prevSnap = resumenEcoSnapshotAnterior(periodo);
+  let prevTxt = '';
+  if(prevSnap){
+    const prevTot = resumenEcoTotales(resumenEcoFilasParaMostrar(prevSnap).map(f=>resumenEcoRowCalc(f, peso)));
+    prevTxt = ' (mes anterior '+mesNombreCorto(prevSnap.periodo)+': '+fmtMM(prevTot.difFecha.mg)+'MM$)';
+  }
+  const comentario = snapshot && snapshot.comentarioMargenOperacional ? '<div class="section-label">Lectura del mes</div><div style="font-size:13.5px; line-height:1.6; white-space:pre-line">'+snapshot.comentarioMargenOperacional+'</div>' : '';
+
+  return '<div class="card">'
+    + '<div class="card-header"><div><div class="card-title">📅 Margen Operacional a la Fecha (MM$)</div>'
+    + '<div class="card-sub">Resultado real acumulado a '+mesLabel+' comparado con el presupuesto a la fecha, por línea de negocio — el seguimiento más relevante para gerencia mes a mes.</div></div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openResumenEconomicoModal(\''+periodo+'\')">✏️ Editar cifras del mes</button></div>'
+    + (snapshot ? '' : '<p class="muted" style="font-size:13px; margin-bottom:10px">Aún no hay cifras cargadas para '+mesLabel+'. Usa "Editar cifras del mes" para ingresarlas.</p>')
+    + '<div style="overflow-x:auto"><table><thead>'+resumenEcoTripleHead(['Cierre '+mesLabel, 'Presupuesto', 'Diferencias'])+'</thead><tbody>'
+    + resumenEcoTripleFilas(grupos, ['cierre','pFecha','difFecha'])
+    + resumenEcoTripleTotal(totales, ['cierre','pFecha','difFecha'])
+    + '</tbody></table></div>'
+    + '<p style="font-size:13.5px; margin-top:12px"><b>Desviación de margen operacional:</b> <span class="mono" style="font-weight:700; color:'+(totales.difFecha.mg<0?'var(--red)':'inherit')+'">'+fmtMM(totales.difFecha.mg)+'MM$</span>'+prevTxt+' respecto del presupuesto a la fecha.</p>'
+    + comentario
+    + '</div>';
+}
+
+// Tabla 2: proyección de cierre de año (adjudicado + pipe efectivo, HH y gastos
+// estimados) vs. el presupuesto anual completo — a diferencia de la tabla 1, que
+// compara solo lo transcurrido del mes.
+function renderRESensibilidad(periodo){
+  const snapshot = resumenEcoGetSnapshot(periodo);
+  const filas = resumenEcoFilasParaMostrar(snapshot);
+  const peso = (state.config.resumenEconomico||{}).pesoNoEfectivoPct||30;
+  const calcs = filas.map(f=>({f, c:resumenEcoRowCalc(f, peso)}));
+  const grupos = resumenEcoAgrupar(calcs);
+  const totales = resumenEcoTotales(calcs.map(x=>x.c));
+  const mesLabel = mesNombreCorto(periodo);
+  const comentario = snapshot && snapshot.comentarioSensibilidad ? '<div class="section-label">Supuestos y lectura</div><div style="font-size:13.5px; line-height:1.6; white-space:pre-line">'+snapshot.comentarioSensibilidad+'</div>' : '';
+
+  return '<div class="card">'
+    + '<div class="card-header"><div><div class="card-title">🔮 Análisis de Sensibilidad al Cierre (MM$)</div>'
+    + '<div class="card-sub">Proyección de cómo cerraría el año (ingresos adjudicados + pipe efectivo, HH y gastos estimados) comparada con el presupuesto anual, por línea de negocio.</div></div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openResumenEconomicoModal(\''+periodo+'\')">✏️ Editar cifras del mes</button></div>'
+    + (snapshot ? '' : '<p class="muted" style="font-size:13px; margin-bottom:10px">Aún no hay cifras cargadas para '+mesLabel+'.</p>')
+    + '<div style="overflow-x:auto"><table><thead>'+resumenEcoTripleHead(['Presupuesto', 'Análisis de Sensibilidad', 'Diferencias'])+'</thead><tbody>'
+    + resumenEcoTripleFilas(grupos, ['pAnual','sens','difAnual'])
+    + resumenEcoTripleTotal(totales, ['pAnual','sens','difAnual'])
+    + '</tbody></table></div>'
+    + '<p style="font-size:13.5px; margin-top:12px"><b>Margen proyectado al cierre:</b> <span class="mono" style="font-weight:700; color:'+(totales.sens.mg<0?'var(--red)':'inherit')+'">'+fmtMM(totales.sens.mg)+'MM$</span> · Presupuestado: '+fmtMM(totales.pAnual.mg)+'MM$ · Diferencia: <span style="color:'+(totales.difAnual.mg<0?'var(--red)':'inherit')+'; font-weight:700">'+fmtMM(totales.difAnual.mg)+'MM$</span></p>'
+    + comentario
+    + '</div>';
+}
+
+// Tabla 3: avance comercial (cuánto del presupuesto anual ya está adjudicado y
+// cuánto queda en pipe, ponderando el pipe no efectivo al % configurado).
+function renderREPipeline(periodo){
+  const snapshot = resumenEcoGetSnapshot(periodo);
+  const filas = resumenEcoFilasParaMostrar(snapshot).filter(f=>!f.esGerencia);
+  const peso = (state.config.resumenEconomico||{}).pesoNoEfectivoPct||30;
+  const items = filas.map(f=>({f, c:resumenEcoRowCalc(f, peso)}));
+  const totales = resumenEcoTotales(items.map(x=>x.c)).comercial;
+  const mesLabel = mesNombreCorto(periodo);
+
+  const rows = items.map(({f,c})=>{
+    const cc = c.comercial;
+    return '<tr><td>'+f.linea+'</td>'
+      + resumenEcoCelda(cc.ppto) + resumenEcoCelda(cc.adjudicado)
+      + '<td class="mono" style="text-align:right; font-weight:700">'+(cc.pctAdj==null?'—':cc.pctAdj.toFixed(0)+'%')+'</td>'
+      + '<td class="mono" style="text-align:right">'+(cc.porVender==null?'—':fmtMM(cc.porVender))+'</td>'
+      + resumenEcoCelda(cc.efectivo)
+      + '<td class="mono" style="text-align:right">'+(cc.pctEfectivo==null?'—':cc.pctEfectivo.toFixed(0)+'%')+'</td>'
+      + resumenEcoCelda(cc.noEfectivo) + resumenEcoCelda(cc.adjMasPEfe)
+      + '<td class="mono" style="text-align:right; font-weight:700">'+(cc.pctAdjMasPEfe==null?'—':cc.pctAdjMasPEfe.toFixed(0)+'%')+'</td>'
+      + resumenEcoCelda(cc.pipeTotal)
+      + '</tr>';
+  }).join('');
+
+  const totalRow = '<tr style="font-weight:700; background:var(--bg)"><td>Totales</td>'
+    + resumenEcoCelda(totales.ppto) + resumenEcoCelda(totales.adjudicado)
+    + '<td class="mono" style="text-align:right">'+(totales.pctAdj==null?'—':totales.pctAdj.toFixed(0)+'%')+'</td>'
+    + '<td class="mono" style="text-align:right">'+fmtMM(totales.porVender)+'</td>'
+    + resumenEcoCelda(totales.efectivo)
+    + '<td class="mono" style="text-align:right">'+(totales.pctEfectivo==null?'—':totales.pctEfectivo.toFixed(0)+'%')+'</td>'
+    + resumenEcoCelda(totales.noEfectivo) + resumenEcoCelda(totales.adjMasPEfe)
+    + '<td class="mono" style="text-align:right">'+(totales.pctAdjMasPEfe==null?'—':totales.pctAdjMasPEfe.toFixed(0)+'%')+'</td>'
+    + resumenEcoCelda(totales.pipeTotal)
+    + '</tr>';
+
+  const bullet1 = totales.ppto>0 ? ('El portafolio a la fecha presenta el '+(totales.pctAdjMasPEfe!=null?totales.pctAdjMasPEfe.toFixed(0):'0')+'% de su presupuesto en estado adjudicado o pipe efectivo, '+fmtMM(totales.adjudicado)+'MM$ adjudicados y '+fmtMM(totales.efectivo)+'MM$ pipe efectivo (este último considerado al 100%).') : '';
+  const bullet2 = 'Además se cuenta con un pipe no efectivo de '+fmtMM(totales.noEfectivo)+'MM$ al '+peso+'% ('+fmtMM(totales.noEfectivoBruto)+'MM$).';
+
+  return '<div class="card">'
+    + '<div class="card-header"><div><div class="card-title">📈 Presupuesto, Adjudicado y Pipe por Línea (MM$)</div>'
+    + '<div class="card-sub">Avance comercial a '+mesLabel+': cuánto del presupuesto anual ya está adjudicado y cuánto queda en pipe, por línea de negocio.</div></div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openResumenEconomicoModal(\''+periodo+'\')">✏️ Editar cifras del mes</button></div>'
+    + (snapshot ? '' : '<p class="muted" style="font-size:13px; margin-bottom:10px">Aún no hay cifras cargadas para '+mesLabel+'.</p>')
+    + '<div style="overflow-x:auto"><table><thead><tr>'
+    + '<th>Línea</th><th class="num">PPTO</th><th class="num">Adjudicado</th><th class="num">% Adj</th><th class="num">Por Vender</th><th class="num">Efectivo</th><th class="num">% Efectivo</th><th class="num" title="Pipe no efectivo ponderado al '+peso+'%">No Efectivo*</th><th class="num">Adj+P.Efe</th><th class="num">% Adj+P.Efe</th><th class="num">Pipe Total</th>'
+    + '</tr></thead><tbody>'+rows+totalRow+'</tbody></table></div>'
+    + '<p class="muted" style="font-size:11px; margin-top:6px">(*) No efectivo ponderado al '+peso+'%.</p>'
+    + (filas.length ? '<ul style="font-size:13px; line-height:1.7; margin-top:10px; padding-left:20px">'+(bullet1?'<li>'+bullet1+'</li>':'')+'<li>'+bullet2+'</li></ul>' : '')
+    + '</div>';
+}
+
+function renderResumenEconomico(){
+  if(!canSeeCostoEmpresa()) return '';
+  const periodo = resumenEcoPeriodoActual();
+  return '<div class="card" style="margin-bottom:16px">'
+    + '<div class="card-header"><div><div class="card-title" style="font-size:16px">💼 Resumen Económico</div>'
+    + '<div class="card-sub">Reporte mensual para gerencia — cifras ingresadas a mano cada corte de mes (presupuesto, adjudicado, pipe comercial y cierre real). 🔒 Dato sensible (Ley 21.719), mismo criterio que costo empresa.</div></div>'
+    + '<div style="display:flex; align-items:center; gap:8px"><label class="muted" style="font-size:12px">Mes de corte</label>'
+    + '<input type="month" value="'+periodo+'" onchange="resumenEcoSetPeriodo(this.value)" style="width:150px">'
+    + '</div></div></div>'
+    + renderREMargenOperacional(periodo)
+    + renderRESensibilidad(periodo)
+    + renderREPipeline(periodo);
+}
+
+function openResumenEconomicoModal(periodo){
+  const snapshot = resumenEcoGetSnapshot(periodo);
+  const filas = resumenEcoFilasParaMostrar(snapshot);
+  const peso = (state.config.resumenEconomico||{}).pesoNoEfectivoPct||30;
+  const mesLabel = monthLabelFull(periodo);
+
+  const numInput = (idx, field, val) => '<input type="number" step="any" id="re_'+idx+'_'+field+'" value="'+(val||0)+'" style="width:100%; padding:6px 8px; font-size:12.5px" class="mono">';
+
+  const rowsTabla3 = filas.map((f,idx)=>
+    '<tr><td style="font-size:12.5px">'+f.linea+(f.esGerencia?' <span class="muted">(gerencia)</span>':'')+'</td>'
+    + '<td>'+numInput(idx,'pptoAnualIng',f.pptoAnualIng)+'</td>'
+    + '<td>'+numInput(idx,'adjudicado',f.adjudicado)+'</td>'
+    + '<td>'+numInput(idx,'pipeEfectivo',f.pipeEfectivo)+'</td>'
+    + '<td>'+numInput(idx,'pipeNoEfectivoBruto',f.pipeNoEfectivoBruto)+'</td>'
+    + '</tr>'
+  ).join('');
+
+  const rowsTabla2 = filas.map((f,idx)=>
+    '<tr><td style="font-size:12.5px">'+f.linea+(f.esGerencia?' <span class="muted">(gerencia)</span>':'')+'</td>'
+    + '<td>'+numInput(idx,'pptoAnualHH',f.pptoAnualHH)+'</td>'
+    + '<td>'+numInput(idx,'pptoAnualGasto',f.pptoAnualGasto)+'</td>'
+    + '<td>'+numInput(idx,'sensHH',f.sensHH)+'</td>'
+    + '<td>'+numInput(idx,'sensGasto',f.sensGasto)+'</td>'
+    + '<td>'+(f.esGerencia ? numInput(idx,'sensIngManual',f.sensIngManual) : '<span class="muted" style="font-size:11px">= Adjudicado + Pipe Efectivo</span>')+'</td>'
+    + '</tr>'
+  ).join('');
+
+  const rowsTabla1 = filas.map((f,idx)=>
+    '<tr><td style="font-size:12.5px">'+f.linea+(f.esGerencia?' <span class="muted">(gerencia)</span>':'')+'</td>'
+    + '<td>'+numInput(idx,'pptoFechaIng',f.pptoFechaIng)+'</td>'
+    + '<td>'+numInput(idx,'pptoFechaHH',f.pptoFechaHH)+'</td>'
+    + '<td>'+numInput(idx,'pptoFechaGasto',f.pptoFechaGasto)+'</td>'
+    + '<td>'+numInput(idx,'cierreIng',f.cierreIng)+'</td>'
+    + '<td>'+numInput(idx,'cierreHH',f.cierreHH)+'</td>'
+    + '<td>'+numInput(idx,'cierreGasto',f.cierreGasto)+'</td>'
+    + '</tr>'
+  ).join('');
+
+  document.getElementById('modalBody').style.maxWidth = '980px';
+  document.getElementById('modalBody').innerHTML = '<h3>Editar Resumen Económico — '+mesLabel+'</h3>'
+    + '<p class="muted" style="font-size:12px; margin-bottom:14px">Todos los montos en MM$ (millones de pesos). Los % y totales se calculan solos.</p>'
+    + '<div class="field" style="max-width:200px; margin-bottom:16px"><label>Peso pipe no efectivo (%)</label><input type="number" id="re_peso" min="0" max="100" value="'+peso+'"></div>'
+
+    + '<div class="section-label">1. Presupuesto Anual, Adjudicado y Pipe</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Línea</th><th class="num">PPTO (Ing. anual)</th><th class="num">Adjudicado</th><th class="num">Pipe Efectivo</th><th class="num">Pipe No Efectivo (bruto)</th></tr></thead><tbody>'+rowsTabla3+'</tbody></table></div>'
+
+    + '<div class="section-label" style="margin-top:18px">2. Análisis de Sensibilidad al Cierre (resto del presupuesto anual)</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Línea</th><th class="num">Ppto HH</th><th class="num">Ppto Gasto</th><th class="num">Sensibilidad HH</th><th class="num">Sensibilidad Gasto</th><th class="num">Sensibilidad Ing</th></tr></thead><tbody>'+rowsTabla2+'</tbody></table></div>'
+
+    + '<div class="section-label" style="margin-top:18px">3. Margen Operacional a la Fecha (presupuesto y cierre del mes)</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Línea</th><th class="num">Ppto Ing (a la fecha)</th><th class="num">Ppto HH (a la fecha)</th><th class="num">Ppto Gasto (a la fecha)</th><th class="num">Cierre Ing</th><th class="num">Cierre HH</th><th class="num">Cierre Gasto</th></tr></thead><tbody>'+rowsTabla1+'</tbody></table></div>'
+
+    + '<div class="field" style="margin-top:16px"><label>Lectura del mes (Margen Operacional a la fecha)</label><textarea id="re_comentario_mo" rows="3">'+(snapshot?snapshot.comentarioMargenOperacional||'':'')+'</textarea></div>'
+    + '<div class="field" style="margin-top:10px"><label>Supuestos / lectura (Análisis de Sensibilidad al cierre)</label><textarea id="re_comentario_sens" rows="3">'+(snapshot?snapshot.comentarioSensibilidad||'':'')+'</textarea></div>'
+
+    + '<div class="modal-actions">'
+    + (snapshot ? '<button class="btn btn-ghost" style="margin-right:auto; color:var(--red)" onclick="deleteResumenEconomicoSnapshot(\''+periodo+'\')">Eliminar mes</button>' : '')
+    + '<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>'
+    + '<button class="btn btn-primary" onclick="saveResumenEconomico(\''+periodo+'\')">Guardar</button>'
+    + '</div>';
+  openModal();
+}
+function saveResumenEconomico(periodo){
+  const cat = resumenEcoCatalogo();
+  const filas = cat.map((c,idx)=>{
+    const get = field => Number(document.getElementById('re_'+idx+'_'+field).value)||0;
+    return {
+      linea: c.linea, esGerencia: c.esGerencia,
+      pptoFechaIng:get('pptoFechaIng'), pptoFechaHH:get('pptoFechaHH'), pptoFechaGasto:get('pptoFechaGasto'),
+      cierreIng:get('cierreIng'), cierreHH:get('cierreHH'), cierreGasto:get('cierreGasto'),
+      pptoAnualIng:get('pptoAnualIng'), pptoAnualHH:get('pptoAnualHH'), pptoAnualGasto:get('pptoAnualGasto'),
+      sensHH:get('sensHH'), sensGasto:get('sensGasto'),
+      sensIngManual: c.esGerencia ? get('sensIngManual') : 0,
+      adjudicado:get('adjudicado'), pipeEfectivo:get('pipeEfectivo'), pipeNoEfectivoBruto:get('pipeNoEfectivoBruto')
+    };
+  });
+  const comentarioMargenOperacional = document.getElementById('re_comentario_mo').value;
+  const comentarioSensibilidad = document.getElementById('re_comentario_sens').value;
+  const pesoInput = Number(document.getElementById('re_peso').value);
+
+  if(!state.config.resumenEconomico) state.config.resumenEconomico = {pesoNoEfectivoPct:30, snapshots:[]};
+  state.config.resumenEconomico.pesoNoEfectivoPct = (pesoInput>=0 && pesoInput<=100) ? pesoInput : 30;
+
+  let snap = state.config.resumenEconomico.snapshots.find(s=>s.periodo===periodo);
+  if(!snap){ snap = {periodo}; state.config.resumenEconomico.snapshots.push(snap); }
+  snap.filas = filas;
+  snap.comentarioMargenOperacional = comentarioMargenOperacional;
+  snap.comentarioSensibilidad = comentarioSensibilidad;
+  state.config.resumenEconomico.snapshots.sort((a,b)=>a.periodo.localeCompare(b.periodo));
+
+  state.uiResumenEconomicoPeriodo = periodo;
+  persistConfig(); closeModal(); renderAll(); showToast('Resumen económico guardado.');
+}
+function deleteResumenEconomicoSnapshot(periodo){
+  if(!state.config.resumenEconomico) return;
+  state.config.resumenEconomico.snapshots = state.config.resumenEconomico.snapshots.filter(s=>s.periodo!==periodo);
+  persistConfig(); closeModal(); renderAll(); showToast('Mes eliminado.');
+}
+
 // Resumen de rentabilidad agregada del portafolio: la misma capa financiera que se ve
 // por proyecto (sección 5.1 de la propuesta: tres lecturas de margen), pero sumada
 // a nivel de cartera completa, con ranking de riesgo clickeable a cada proyecto.
@@ -3380,7 +3756,9 @@ function renderDashGlobal(){
   const totalProj = totals.projClient + totals.projAdmin;
   const totalAct = totals.actClient + totals.actAdmin;
 
-  let html = renderDashInsightsBanner();
+  let html = renderResumenEconomico();
+
+  html += renderDashInsightsBanner();
 
   html += renderAnalisisFinancieroGeneral();
   html += renderCurvasPortafolioTop();
@@ -5243,7 +5621,7 @@ function deleteGlobalPerson(id){
 
 // ---------- Modal generic ----------
 function openModal(){ document.getElementById('modalOverlay').classList.add('open'); }
-function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); document.getElementById('modalBody').style.maxWidth = ''; }
 document.getElementById('modalOverlay').addEventListener('click', function(e){ if(e.target.id==='modalOverlay') closeModal(); });
 
 // ---------- Init ----------
