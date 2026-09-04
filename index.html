@@ -965,7 +965,11 @@ function costosAdicionalesIncurridos(project){
 function costosAdicionalesEstimados(project){
   return (project.costosAdicionales||[]).filter(c=>c.estado==='estimado').reduce((s,c)=>s+costoAdicionalMonto(c),0);
 }
-function costoDevengadoProject(project){
+// C1 = costo del equipo interno (sueldos/costo empresa) — separado de C2 (costos
+// adicionales: materiales, consultores externos, etc.) para poder mostrarlos como
+// líneas distintas en la vista del proyecto, siguiendo la nomenclatura C0/C1/C2
+// (ingreso / costo interno / costos adicionales) que usa la consultora.
+function costoLaboralDevengado(project){
   let costo = 0;
   state.realEntries.forEach(e=>{
     if(e.projectId !== project.id) return;
@@ -974,8 +978,10 @@ function costoDevengadoProject(project){
     if(!role) return;
     costo += Number(e.hours||0) * costoEmpresaCatalogoRol(role, e.month);
   });
-  costo += costosAdicionalesIncurridos(project);
   return costo;
+}
+function costoDevengadoProject(project){
+  return costoLaboralDevengado(project) + costosAdicionalesIncurridos(project);
 }
 function ingresoDevengadoProject(project){
   const venta = Number(project.montoVenta||0);
@@ -997,7 +1003,7 @@ function ingresoDevengadoProject(project){
   }
   return ingreso;
 }
-function costoPorTerminarProject(project){
+function costoLaboralPorTerminar(project){
   let costo = 0;
   const mesRef = project.endMonth || currentMonth();
   (project.assignments||[]).forEach(a=>{
@@ -1006,8 +1012,10 @@ function costoPorTerminarProject(project){
     const restante = Math.max(0, totalProyectado - realDelRol);
     costo += restante * costoEmpresaCatalogoRol(a.role, mesRef);
   });
-  costo += costosAdicionalesEstimados(project);
   return costo;
+}
+function costoPorTerminarProject(project){
+  return costoLaboralPorTerminar(project) + costosAdicionalesEstimados(project);
 }
 // Las tres lecturas de margen de la sección 5.1: cada una responde una pregunta
 // distinta y se expresa sobre una base distinta (el % nunca comparte denominador).
@@ -1020,7 +1028,15 @@ function margenesProject(project){
   const devengadoMonto = ingresoDevengado - costoDevengado;
   const devengadoPct = ingresoDevengado > 0 ? (devengadoMonto/ingresoDevengado*100) : null;
 
-  const proyectadoMonto = venta - (costoDevengado + costoPorTerminar);
+  // C0/C1/C2: nomenclatura de la consultora — C0 ingreso, C1 costo de equipo
+  // interno (sueldos), C2 costos adicionales (materiales, consultores externos,
+  // etc.) — cada uno como el total proyectado del ítem (lo ya incurrido + lo que
+  // falta), para que Margen Proyectado = C0 - C1 - C2.
+  const c0 = venta;
+  const c1 = costoLaboralDevengado(project) + costoLaboralPorTerminar(project);
+  const c2 = costosAdicionalesIncurridos(project) + costosAdicionalesEstimados(project);
+
+  const proyectadoMonto = c0 - c1 - c2;
   const proyectadoPct = venta > 0 ? (proyectadoMonto/venta*100) : null;
 
   const esCerrado = project.status === 'cerrado';
@@ -1029,6 +1045,7 @@ function margenesProject(project){
 
   return {
     venta, costoDevengado, ingresoDevengado, costoPorTerminar,
+    c0, c1, c2,
     devengado: {monto: devengadoMonto, pct: devengadoPct},
     proyectadoCierre: {monto: proyectadoMonto, pct: proyectadoPct},
     comercialCierre: {monto: comercialMonto, pct: comercialPct}
@@ -3646,13 +3663,19 @@ function renderFinanzasProyecto(p){
   if(!p.montoVenta){
     html += '<div class="muted" style="font-size:13px; margin-bottom:10px">Sin monto de venta definido — edita el proyecto para ingresarlo y habilitar el cálculo de márgenes.</div>';
   } else {
-    html += '<div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px; margin-bottom:12px">'
-      + '<span class="chip">Venta contratada: <b>'+fmtCLP(m.venta)+'</b></span>'
-      + (verCosto ? '<span class="chip">Costo devengado: <b>'+fmtCLP(m.costoDevengado)+'</b></span><span class="chip">Costo por terminar: <b>'+fmtCLP(m.costoPorTerminar)+'</b></span>' : '<span class="chip muted">🔒 Costo empresa oculto para el rol "'+state.viewAsRole+'"</span>')
-      + '</div>'
+    // C0 (ingreso) / C1 (costo interno = sueldos/equipo) / C2 (costos adicionales:
+    // materiales, consultores externos, etc.) — nomenclatura de costeo que usa la
+    // consultora. Margen Proyectado = C0 - C1 - C2, en $ y en %.
+    html += '<div style="overflow-x:auto; margin-bottom:16px"><table style="max-width:480px">'
+      + '<tr><td>C0 · Ingreso <span class="muted" style="font-weight:400">(venta contratada)</span></td><td class="mono" style="text-align:right; font-weight:700">'+fmtCLP(m.c0)+'</td></tr>'
+      + (verCosto
+        ? '<tr><td>C1 · Costo interno <span class="muted" style="font-weight:400">(sueldos / equipo)</span></td><td class="mono" style="text-align:right; color:var(--red)">−'+fmtCLP(m.c1)+'</td></tr>'
+          + '<tr><td>C2 · Costos adicionales <span class="muted" style="font-weight:400">(materiales, consultores externos, etc.)</span></td><td class="mono" style="text-align:right; color:var(--red)">−'+fmtCLP(m.c2)+'</td></tr>'
+          + '<tr style="border-top:2px solid var(--border)"><td><b>Margen proyectado</b></td><td class="mono" style="text-align:right; font-weight:800; font-size:15px; color:'+pctBadgeColor(m.proyectadoCierre.pct)+'">'+fmtCLP(m.proyectadoCierre.monto)+' <span style="font-size:12.5px">('+(m.proyectadoCierre.pct==null?'—':m.proyectadoCierre.pct.toFixed(1)+'%')+')</span></td></tr>'
+        : '<tr><td colspan="2" class="muted" style="font-size:12.5px">🔒 C1, C2 y margen proyectado ocultos para el rol "'+state.viewAsRole+'" (costo empresa)</td></tr>')
+      + '</table></div>'
       + '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px">'
       + margenCard('Margen devengado', '% sobre el esfuerzo ya valorizado — ¿el trabajo hecho hasta hoy rinde plata?', m.devengado)
-      + margenCard('Margen proyectado al cierre', '% sobre la venta total — si todo sigue como va, ¿cómo termina el proyecto?', m.proyectadoCierre)
       + margenCard('Margen comercial de cierre', p.status==='cerrado' ? '% sobre la venta — resultado final, el proyecto ya cerró' : 'Se calcula solo cuando el proyecto cierra', m.comercialCierre)
       + '</div>';
   }
@@ -3790,6 +3813,62 @@ function deleteCostoAdicional(projectId, costoId){
 }
 
 // ---------- Página de detalle de proyecto ----------
+// Evolución mensual de HH por persona dentro del proyecto: la proyección solo
+// existe por rol (no por persona), así que se muestra el proyectado a nivel de
+// rol y, bajo cada rol, las horas reales de cada persona que efectivamente las
+// registró — sin inventar una proyección individual que no existe en los datos.
+// Además, junto a cada rol se muestra un aviso de desviación (real vs. proyectado).
+function renderEvolucionMensualPersonasProyecto(p){
+  const months = monthRange(p.startMonth, p.endMonth);
+  const assignments = (p.assignments||[]).filter(a=>a.role);
+  if(months.length===0 || assignments.length===0) return '';
+
+  const headLabel = m => { const parts = m.split('-'); return MONTHS_ES[parseInt(parts[1],10)-1] + " '" + parts[0].slice(2); };
+  const headCols = months.map(m=>'<th class="num" style="font-size:10px; text-align:center; white-space:nowrap">'+headLabel(m)+'</th>').join('');
+
+  const blocks = assignments.map(a=>{
+    const roleName = a.role;
+    const projTotal = assignmentProjectedTotal(a);
+    const entriesRol = state.realEntries.filter(e=>{
+      if(e.projectId !== p.id) return false;
+      const person = getPerson(e.personId);
+      return person && person.role === roleName;
+    });
+    const realTotal = entriesRol.reduce((s,e)=>s+Number(e.hours||0),0);
+    const ratio = projTotal>0 ? (realTotal/projTotal) : (realTotal>0 ? 2 : null);
+    const desviacion = ratio==null ? '' :
+      ' <span style="color:'+ratioColor(ratio)+'; font-weight:700; font-size:11px">'
+      + (ratio>1.1 ? '⚠️ '+Math.round((ratio-1)*100)+'% sobre lo proyectado' : (ratio<0.9 ? '⚠️ '+Math.round((1-ratio)*100)+'% bajo lo proyectado' : '✓ en línea'))
+      + '</span>';
+
+    const projRow = '<tr style="background:var(--bg)"><td><b>'+roleName+'</b> <span class="muted" style="font-weight:400; font-size:11px">— proyectado</span>'+desviacion+'</td>'
+      + months.map(m=>'<td class="mono" style="text-align:center; font-size:11px">'+((a.projectedByMonth&&a.projectedByMonth[m])?fmtH(a.projectedByMonth[m]):'<span class="muted">—</span>')+'</td>').join('')
+      + '<td class="mono" style="text-align:center; font-weight:700">'+fmtH(projTotal)+'</td></tr>';
+
+    const personIds = Array.from(new Set(entriesRol.map(e=>e.personId)));
+    const personRows = personIds.map(pid=>{
+      const person = getPerson(pid);
+      let total=0;
+      const cells = months.map(m=>{
+        const h = entriesRol.filter(e=>e.personId===pid && e.month===m).reduce((s,e)=>s+Number(e.hours||0),0);
+        total += h;
+        return '<td class="mono" style="text-align:center; font-size:11px">'+(h?fmtH(h):'<span class="muted">—</span>')+'</td>';
+      }).join('');
+      return '<tr><td style="padding-left:22px">'+(person?person.name:'Persona eliminada')+' <span class="muted" style="font-size:11px">— real</span></td>'+cells+'<td class="mono" style="text-align:center; font-weight:700">'+fmtH(total)+'</td></tr>';
+    }).join('');
+
+    const sinDatos = personIds.length===0
+      ? '<tr><td colspan="'+(months.length+2)+'" class="muted" style="padding-left:22px; font-size:12px">Sin horas reales registradas todavía para este rol.</td></tr>'
+      : '';
+
+    return projRow + personRows + sinDatos;
+  }).join('');
+
+  return '<div class="section-label" style="margin-top:20px">📈 Evolución Mensual de HH por Persona</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Rol / Persona</th>'+headCols+'<th class="num">Total</th></tr></thead><tbody>'+blocks+'</tbody></table></div>'
+    + '<p class="muted" style="font-size:11px; margin-top:6px">La proyección se define por rol (no existe una proyección individual por persona); las horas reales se desglosan por quién efectivamente las registró cada mes.</p>';
+}
+
 function renderProjectDetailPage(id){
   const p = state.projects.find(x=>x.id===id);
   if(!p){
@@ -3814,6 +3893,7 @@ function renderProjectDetailPage(id){
     + '<div class="card-sub">'+(p.pep?'PEP '+p.pep+' · ':'')+(p.client||'Sin cliente')+(p.lineaNegocio?' · LN: '+p.lineaNegocio:'')+' · '+periodo+'</div>'
     + '<div style="max-width:520px; margin-top:14px">'+gauge(t.projectedHours, t.actualHours)+'</div>'
     + renderPeopleManager(p)
+    + renderEvolucionMensualPersonasProyecto(p)
     + (isAdmin ? '' : renderFinanzasProyecto(p))
     + '</div>';
 
@@ -4878,6 +4958,48 @@ function renderFinanceConfigCard(){
   html += '</div>';
   return html;
 }
+// "Planilla" para comparar, por persona, lo que le pagamos (costo empresa/hora,
+// según su rol) contra la tarifa a la que se vende su hora al cliente (también
+// por rol, ya que hoy no hay una tarifa individual por persona) — para verificar
+// si los proyectos efectivamente se están vendiendo al margen que se asume al
+// proyectarlos, o si en la práctica se vende distinto a lo calculado.
+function renderMargenPorPersonaCard(){
+  if(!canSeeCostoEmpresa()) return '';
+  const mesRef = currentMonth();
+  const rows = state.people.map(person=>{
+    const costoHora = costoEmpresaCatalogoRol(person.role, mesRef);
+    const tarifaHora = tarifaCatalogoRol(person.role, mesRef);
+    const sinDatos = costoHora===0 && tarifaHora===0;
+    const margenHora = tarifaHora - costoHora;
+    const margenPct = tarifaHora>0 ? (margenHora/tarifaHora*100) : null;
+    const hhReales = state.realEntries.filter(e=>e.personId===person.id && e.category!=='admin').reduce((s,e)=>s+Number(e.hours||0),0);
+    const margenGenerado = hhReales * margenHora;
+    return {person, costoHora, tarifaHora, margenHora, margenPct, hhReales, margenGenerado, sinDatos};
+  }).sort((a,b)=>{
+    const pa = a.margenPct==null ? 999 : a.margenPct;
+    const pb = b.margenPct==null ? 999 : b.margenPct;
+    return pa-pb;
+  });
+
+  const rowsHtml = rows.map(r=>
+    '<tr>'
+    + '<td><b>'+r.person.name+'</b><div class="muted" style="font-size:11px">'+r.person.role+'</div></td>'
+    + '<td class="mono" style="text-align:right">'+(r.costoHora>0?fmtCLP(r.costoHora)+'/h':'—')+'</td>'
+    + '<td class="mono" style="text-align:right">'+(r.tarifaHora>0?fmtCLP(r.tarifaHora)+'/h':'—')+'</td>'
+    + '<td class="mono" style="text-align:right; color:'+(r.sinDatos?'var(--muted)':pctBadgeColor(r.margenPct))+'; font-weight:700">'+(r.sinDatos?'—':fmtCLP(r.margenHora)+'/h')+'</td>'
+    + '<td class="mono" style="text-align:right; color:'+(r.margenPct==null?'var(--muted)':pctBadgeColor(r.margenPct))+'; font-weight:700">'+(r.margenPct==null?'—':r.margenPct.toFixed(0)+'%')+'</td>'
+    + '<td class="mono" style="text-align:right">'+fmtH(r.hhReales)+' h</td>'
+    + '<td class="mono" style="text-align:right; font-weight:700">'+(r.sinDatos?'—':fmtCLP(r.margenGenerado))+'</td>'
+    + '</tr>'
+  ).join('');
+
+  return '<div class="card">'
+    + '<div class="card-header"><div><div class="card-title">⚖️ Margen por Persona — Costo vs. Tarifa de Venta</div>'
+    + '<div class="card-sub">Compara lo que le pagamos a cada persona (costo empresa/hora, según su rol) con la tarifa a la que se vende su hora al cliente (también por rol) — para ver si los proyectos se están vendiendo al margen que se asume al proyectarlos.</div></div></div>'
+    + '<p class="muted" style="font-size:11.5px; margin-bottom:10px">🔒 Dato sensible (Ley 21.719) — mismo criterio que el costo empresa. Como las tarifas son por rol y no por persona, el margen mostrado es el que le correspondería a cada quien según su rol, no una tarifa individual real.</p>'
+    + (rows.length ? '<div style="overflow-x:auto"><table><thead><tr><th>Persona</th><th class="num">Costo empresa/h</th><th class="num">Tarifa venta/h</th><th class="num">Margen/h ($)</th><th class="num">Margen/h (%)</th><th class="num" title="Horas reales registradas en proyectos de cliente (no incluye administración interna)">HH reales (proy.)</th><th class="num" title="HH reales × margen por hora — margen que efectivamente se ha generado según lo trabajado hasta hoy">Margen generado</th></tr></thead><tbody>'+rowsHtml+'</tbody></table></div>' : '<p class="muted" style="font-size:13px">Sin personas registradas.</p>')
+    + '</div>';
+}
 function saveValorUF(val){
   state.config.valorUF = Number(val)||0;
   state.config.valorUFFecha = todayISO(); // edición manual: no se sobrescribe con la auto-actualización de hoy
@@ -5002,12 +5124,14 @@ function renderConfig(){
     + '</div></div>';
 
   const financeCard = renderFinanceConfigCard();
+  const margenPersonaCard = renderMargenPorPersonaCard();
   const metasCard = renderMetasConfigCard();
   const accesoCard = renderAccesoConfigCard();
 
   return backupCard
     + accesoCard
     + financeCard
+    + margenPersonaCard
     + metasCard
     + '<div class="card"><div class="card-header"><div class="card-title">Unidades de Negocio</div><button class="btn btn-secondary btn-sm" onclick="openUnidadModal()">+ Agregar unidad</button></div>'
     + ((cfg.unidades||[]).length ? '<table><thead><tr><th>Nombre</th><th></th></tr></thead><tbody>'+unidadRows+'</tbody></table>' : '<p class="muted" style="font-size:13px">Sin unidades configuradas (ej: CircularHR, Expande).</p>')
