@@ -1980,34 +1980,23 @@ function createUnidadChart(canvasId, chartKey, filterType){
 
   unidades.forEach(u => {
     labelsU.push(u);
-    const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
     let pH = 0, aH = 0;
 
+    // Las proyecciones son por rol dentro de un proyecto (no por persona), así que
+    // la unidad/línea a la que pertenecen las horas la define el proyecto (su
+    // lineaNegocio), no quién esté asignado — igual que en el resto de la app.
     state.projects.forEach(p => {
+      if(getUnidadForLinea(p.lineaNegocio) !== u) return;
       const matchProj = (filterType === 'all') || (filterType === 'proyectos' && p.tipo !== 'admin') || (filterType === 'admin' && p.tipo === 'admin');
-      if(matchProj){
-        (p.assignments||[]).forEach(a => {
-          if(personIds.has(a.personId)){
-            Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
-              if(isMonthInFilter(m)) pH += Number(h||0);
-            });
-          }
+      if(!matchProj) return;
+      (p.assignments||[]).forEach(a => {
+        Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+          if(isMonthInFilter(m)) pH += Number(h||0);
         });
-      }
-    });
-
-    state.realEntries.forEach(e => {
-      if(isMonthInFilter(e.month) && personIds.has(e.personId)){
-        let isAdmin = e.category === 'admin';
-        if(!isAdmin && e.projectId){
-          const proj = state.projects.find(p => p.id === e.projectId);
-          if(proj && proj.tipo === 'admin') isAdmin = true;
-        }
-        const matchEntry = (filterType === 'all') || (filterType === 'proyectos' && !isAdmin) || (filterType === 'admin' && isAdmin);
-        if(matchEntry){
-          aH += Number(e.hours||0);
-        }
-      }
+      });
+      state.realEntries.forEach(e => {
+        if(e.projectId === p.id && isMonthInFilter(e.month)) aH += Number(e.hours||0);
+      });
     });
 
     projU.push(pH);
@@ -2050,34 +2039,22 @@ function createLineaChart(canvasId, chartKey, filterType){
 
   lineas.forEach(l => {
     labelsL.push(l.nombre);
-    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
     let pH = 0, aH = 0;
 
+    // Igual que en createUnidadChart: la línea a la que pertenecen las horas la
+    // define el proyecto (su lineaNegocio), no quién esté asignado al rol.
     state.projects.forEach(p => {
+      if((p.lineaNegocio||'') !== l.nombre) return;
       const matchProj = (filterType === 'all') || (filterType === 'proyectos' && p.tipo !== 'admin') || (filterType === 'admin' && p.tipo === 'admin');
-      if(matchProj){
-        (p.assignments||[]).forEach(a => {
-          if(personIds.has(a.personId)){
-            Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
-              if(isMonthInFilter(m)) pH += Number(h||0);
-            });
-          }
+      if(!matchProj) return;
+      (p.assignments||[]).forEach(a => {
+        Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+          if(isMonthInFilter(m)) pH += Number(h||0);
         });
-      }
-    });
-
-    state.realEntries.forEach(e => {
-      if(isMonthInFilter(e.month) && personIds.has(e.personId)){
-        let isAdmin = e.category === 'admin';
-        if(!isAdmin && e.projectId){
-          const proj = state.projects.find(p => p.id === e.projectId);
-          if(proj && proj.tipo === 'admin') isAdmin = true;
-        }
-        const matchEntry = (filterType === 'all') || (filterType === 'proyectos' && !isAdmin) || (filterType === 'admin' && isAdmin);
-        if(matchEntry){
-          aH += Number(e.hours||0);
-        }
-      }
+      });
+      state.realEntries.forEach(e => {
+        if(e.projectId === p.id && isMonthInFilter(e.month)) aH += Number(e.hours||0);
+      });
     });
 
     projL.push(pH);
@@ -2426,26 +2403,24 @@ function renderDashUnidadesComplianceTable(){
   headCols += '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center; background:var(--surface)">Total %</th>';
 
   const rows = unidades.map(u => {
-    const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
-
     let totalProj = 0, totalAct = 0;
     const monthCells = monthsFull.map(m => {
       const monthKey = year + '-' + m.num;
       const isFiltered = isMonthInFilter(monthKey);
 
+      // La unidad la define el proyecto (su lineaNegocio), no quién esté asignado
+      // al rol — las proyecciones son por rol dentro del proyecto, no por persona.
       let projM = 0, actM = 0;
       state.projects.forEach(p => {
+        if(getUnidadForLinea(p.lineaNegocio) !== u) return;
         (p.assignments||[]).forEach(a => {
-          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]){
+          if(a.projectedByMonth && a.projectedByMonth[monthKey]){
             projM += Number(a.projectedByMonth[monthKey] || 0);
           }
         });
-      });
-
-      state.realEntries.forEach(e => {
-        if(isMonthInFilter(e.month) && e.month === monthKey && personIds.has(e.personId)){
-          actM += Number(e.hours || 0);
-        }
+        state.realEntries.forEach(e => {
+          if(e.projectId === p.id && e.month === monthKey) actM += Number(e.hours || 0);
+        });
       });
 
       totalProj += projM;
@@ -2524,7 +2499,6 @@ function renderDashLineasComplianceTable(){
   headCols += '<th class="num" style="font-size:11.5px; padding:6px 8px; text-align:center; background:var(--surface)">Total %</th>';
 
   const rows = lineas.map(l => {
-    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
     const unidadName = l.unidad ? ' (' + l.unidad + ')' : ' (Sin Unidad)';
 
     let totalProj = 0, totalAct = 0;
@@ -2532,22 +2506,20 @@ function renderDashLineasComplianceTable(){
       const monthKey = year + '-' + m.num;
       const isFiltered = isMonthInFilter(monthKey);
 
+      // La línea la define el proyecto (su lineaNegocio), no quién esté asignado
+      // al rol — las proyecciones son por rol dentro del proyecto, no por persona.
       let projM = 0, actM = 0;
       state.projects.forEach(p => {
+        if((p.lineaNegocio||'') !== l.nombre) return;
         if(!isProjectInEntityFilter(p)) return;
         (p.assignments||[]).forEach(a => {
-          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]){
+          if(a.projectedByMonth && a.projectedByMonth[monthKey]){
             projM += Number(a.projectedByMonth[monthKey] || 0);
           }
         });
-      });
-
-      state.realEntries.forEach(e => {
-        if(isMonthInFilter(e.month) && e.month === monthKey && personIds.has(e.personId)){
-          const proj = state.projects.find(p => p.id === e.projectId);
-          if(proj && !isProjectInEntityFilter(proj)) return;
-          actM += Number(e.hours || 0);
-        }
+        state.realEntries.forEach(e => {
+          if(e.projectId === p.id && e.month === monthKey) actM += Number(e.hours || 0);
+        });
       });
 
       totalProj += projM;
@@ -2753,21 +2725,17 @@ function renderDashInsightsBanner(){
   // Find most efficient line
   let bestLine = '—', bestLineRatio = 999;
   (state.config.lineasNegocio||[]).forEach(l => {
-    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
     let pH = 0, aH = 0;
     state.projects.forEach(p => {
+      if((p.lineaNegocio||'') !== l.nombre) return;
       (p.assignments||[]).forEach(a => {
-        if(personIds.has(a.personId)){
-          Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
-            if(isMonthInFilter(m)) pH += Number(h||0);
-          });
-        }
+        Object.entries(a.projectedByMonth||{}).forEach(([m, h]) => {
+          if(isMonthInFilter(m)) pH += Number(h||0);
+        });
       });
-    });
-    state.realEntries.forEach(e => {
-      if(isMonthInFilter(e.month) && personIds.has(e.personId)){
-        aH += Number(e.hours||0);
-      }
+      state.realEntries.forEach(e => {
+        if(e.projectId === p.id && isMonthInFilter(e.month)) aH += Number(e.hours||0);
+      });
     });
 
     if(pH > 0){
@@ -2829,18 +2797,18 @@ function exportComplianceMatrixCSV(){
   // 1. Unidades
   csvRows.push(['Nivel 1: Unidad de Negocio', ...monthsShort, 'Total %']);
   (state.config.unidades||[]).forEach(u => {
-    const personIds = new Set(peopleInUnidad(u).map(p=>p.id));
     let totalProj = 0, totalAct = 0;
     const mPcts = monthsFull.map(mNum => {
       const monthKey = year + '-' + mNum;
       let pM = 0, aM = 0;
       state.projects.forEach(p => {
+        if(getUnidadForLinea(p.lineaNegocio) !== u) return;
         (p.assignments||[]).forEach(a => {
-          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]) pM += Number(a.projectedByMonth[monthKey]||0);
+          if(a.projectedByMonth && a.projectedByMonth[monthKey]) pM += Number(a.projectedByMonth[monthKey]||0);
         });
-      });
-      state.realEntries.forEach(e => {
-        if(e.month === monthKey && personIds.has(e.personId)) aM += Number(e.hours||0);
+        state.realEntries.forEach(e => {
+          if(e.projectId === p.id && e.month === monthKey) aM += Number(e.hours||0);
+        });
       });
       totalProj += pM; totalAct += aM;
       return pM > 0 ? Math.round((aM/pM)*100) + '%' : (aM > 0 ? '!h' : '—');
@@ -2853,19 +2821,19 @@ function exportComplianceMatrixCSV(){
   // 2. Lineas
   csvRows.push(['Nivel 2: Linea de Negocio (Unidad)', ...monthsShort, 'Total %']);
   (state.config.lineasNegocio||[]).forEach(l => {
-    const personIds = new Set(peopleInLinea(l.nombre).map(p=>p.id));
     const label = l.nombre + (l.unidad ? ' (' + l.unidad + ')' : '');
     let totalProj = 0, totalAct = 0;
     const mPcts = monthsFull.map(mNum => {
       const monthKey = year + '-' + mNum;
       let pM = 0, aM = 0;
       state.projects.forEach(p => {
+        if((p.lineaNegocio||'') !== l.nombre) return;
         (p.assignments||[]).forEach(a => {
-          if(personIds.has(a.personId) && a.projectedByMonth && a.projectedByMonth[monthKey]) pM += Number(a.projectedByMonth[monthKey]||0);
+          if(a.projectedByMonth && a.projectedByMonth[monthKey]) pM += Number(a.projectedByMonth[monthKey]||0);
         });
-      });
-      state.realEntries.forEach(e => {
-        if(e.month === monthKey && personIds.has(e.personId)) aM += Number(e.hours||0);
+        state.realEntries.forEach(e => {
+          if(e.projectId === p.id && e.month === monthKey) aM += Number(e.hours||0);
+        });
       });
       totalProj += pM; totalAct += aM;
       return pM > 0 ? Math.round((aM/pM)*100) + '%' : (aM > 0 ? '!h' : '—');
